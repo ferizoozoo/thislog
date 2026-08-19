@@ -3,6 +3,9 @@
  */
 package org.example;
 
+import java.io.FileDescriptor;
+import java.io.FileOutputStream;
+import java.io.PrintStream;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 
@@ -17,6 +20,7 @@ public class Logging {
     private final String BLUE = "\u001B[34m";
 
     private LogLevel currentLogLevel = LogLevel.INFO;
+    private PrintStream printer = System.out;
 
     public enum LogLevel {
         DEBUG, INFO, WARN, ERROR
@@ -32,15 +36,21 @@ public class Logging {
         };
     }
 
-    public void setLogLevel(LogLevel level) {
+    public Logging setLogLevel(LogLevel level) {
         this.currentLogLevel = level;
+        return this;
     }
 
-    public synchronized String log(String message, LogLevel level) {
+    public Logging setOutputStream(FileDescriptor fd) {
+        this.printer = new PrintStream(new FileOutputStream(fd), true);
+        return this;
+    }
+
+    public synchronized void log(String message, LogLevel level) {
         if (level.ordinal() < this.currentLogLevel.ordinal()) {
-            return "";
+            return;
         }
         var timestamp = LocalDateTime.now().format(TIMESTAMP_FORMAT);
-        return color(level) + "[" + timestamp + "] " + message + RESET;
+        this.printer.println(color(level) + "[" + timestamp + "] " + message + RESET);
     }
 }

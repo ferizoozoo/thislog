@@ -3,20 +3,108 @@
  */
 package org.example;
 
-import static org.junit.Assert.assertEquals;
+import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.PrintStream;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.time.LocalDateTime;
+import java.util.function.Consumer;
 
+import org.junit.After;
+import static org.junit.Assert.assertEquals;
+import org.junit.Rule;
 import org.junit.Test;
+import org.junit.rules.TemporaryFolder;
 
 public class LoggingTest {
-    private final String RESET = "\u001B[0m";
-    private final String GREEN = "\u001B[32m";
+    private static final String ESC = String.valueOf((char) 27);
+    private static final String RESET = ESC + "[0m";
+    private static final String GREEN = ESC + "[32m";
+    private static final String YELLOW = ESC + "[33m";
+    private static final String RED = ESC + "[31m";
 
-    @Test public void logDisplaysMessage() {
-        Logging classUnderTest = new Logging();
-        var now = java.time.LocalDateTime.now().format(Logging.TIMESTAMP_FORMAT);
-        
-        assertEquals(
-            GREEN + "[" + now + "] " + "Hello, World!" + RESET,
-            classUnderTest.log("Hello, World!", Logging.LogLevel.INFO));
+    @Rule public TemporaryFolder tempFolder = new TemporaryFolder();
+
+    private String capture(Consumer<Logging> action) throws Exception {
+        File sink = tempFolder.newFile();
+        try (FileOutputStream fos = new FileOutputStream(sink)) {
+            action.accept(new Logging().setOutputStream(fos.getFD()));
+        }
+        return Files.readString(sink.toPath(), StandardCharsets.UTF_8);
+    }
+
+    private String expectedLine(String color, String message) {
+        var now = LocalDateTime.now().format(Logging.TIMESTAMP_FORMAT);
+        return color + "[" + now + "] " + message + RESET + System.lineSeparator();
+    }
+
+    @Test public void logWritesMessageToTheConfiguredDescriptor() throws Exception {
+        String written = capture(log -> log.log("Hello, World!", Logging.LogLevel.INFO));
+
+        assertEquals(expectedLine(GREEN, "Hello, World!"), written);
+    }
+
+    @Test public void warnMessagesAreYellow() throws Exception {
+        String written = capture(log -> log.log("Careful", Logging.LogLevel.WARN));
+
+        assertEquals(expectedLine(YELLOW, "Careful"), written);
+    }
+
+    @Test public void errorMessagesAreRed() throws Exception {
+        String written = capture(log -> log.log("Boom", Logging.LogLevel.ERROR));
+
+        assertEquals(expectedLine(RED, "Boom"), written);
+    }
+
+    @Test public void messagesBelowTheThresholdAreNotWritten() throws Exception {
+        String written = capture(log -> log.setLogLevel(Logging.LogLevel.WARN)
+                                           .log("chatter", Logging.LogLevel.DEBUG));
+
+        assertEquals("", written);
+    }
+
+    @Test public void successiveMessagesAccumulate() throws Exception {
+        String written = capture(log -> {
+            log.log("first", Logging.LogLevel.INFO);
+            log.log("second", Logging.LogLevel.ERROR);
+        });
+
+        assertEquals(expectedLine(GREEN, "first") + expectedLine(RED, "second"), written);
+    }
+
+    // ---------------------------------------------------------------------
+    // Stdout.
+    // ---------------------------------------------------------------------
+
+    private final PrintStream realStdout = System.out;
+
+    @After public void restoreStdout() {
+        System.setOut(realStdout);
+    }
+
+    private ByteArrayOutputStream captureStdout() {
+        var buffer = new ByteArrayOutputStream();
+        System.setOut(new PrintStream(buffer, true, StandardCharsets.UTF_8));
+        return buffer;
+    }
+
+    @Test public void logGoesToStdoutByDefault() {
+        ByteArrayOutputStream stdout = captureStdout();
+
+        new Logging().log("to stdout", Logging.LogLevel.INFO);
+
+        assertEquals(expectedLine(GREEN, "to stdout"), stdout.toString(StandardCharsets.UTF_8));
+    }
+
+    @Test public void settingADescriptorDivertsAwayFromStdout() throws Exception {
+        ByteArrayOutputStream stdout = captureStdout();
+
+        String written = capture(log -> log.log("to a file", Logging.LogLevel.INFO));
+
+        assertEquals("stdout should be untouched once a descriptor is set",
+            "", stdout.toString(StandardCharsets.UTF_8));
+        assertEquals(expectedLine(GREEN, "to a file"), written);
     }
 }
