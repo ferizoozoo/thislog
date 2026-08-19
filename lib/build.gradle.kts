@@ -26,6 +26,18 @@ dependencies {
     implementation(libs.guava)
 }
 
+tasks.withType<Test>().configureEach {
+    testLogging {
+        events("passed", "skipped", "failed")
+        // Print the full assertion message and stack trace, so a failed
+        // assertEquals shows both the expected and the actual value.
+        exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+        showExceptions = true
+        showCauses = true
+        showStackTraces = true
+    }
+}
+
 // Apply a specific Java toolchain to ease working on different environments.
 java {
     toolchain {

@@ -3,12 +3,20 @@
  */
 package org.example;
 
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+
 public class Logging {
+    public static final DateTimeFormatter TIMESTAMP_FORMAT =
+        DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
+
     private final String RESET = "\u001B[0m";
     private final String GREEN = "\u001B[32m";
     private final String YELLOW = "\u001B[33m";
     private final String RED = "\u001B[31m";
     private final String BLUE = "\u001B[34m";
+
+    private LogLevel currentLogLevel = LogLevel.INFO;
 
     public enum LogLevel {
         DEBUG, INFO, WARN, ERROR
@@ -24,7 +32,15 @@ public class Logging {
         };
     }
 
-    public String log(String message, LogLevel level) {
-        return color(level) + message + RESET;
+    public void setLogLevel(LogLevel level) {
+        this.currentLogLevel = level;
+    }
+
+    public synchronized String log(String message, LogLevel level) {
+        if (level.ordinal() < this.currentLogLevel.ordinal()) {
+            return "";
+        }
+        var timestamp = LocalDateTime.now().format(TIMESTAMP_FORMAT);
+        return color(level) + "[" + timestamp + "] " + message + RESET;
     }
 }

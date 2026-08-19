@@ -3,6 +3,8 @@
  */
 package org.example;
 
+import static org.junit.Assert.assertEquals;
+
 import org.junit.Test;
 
 public class LoggingTest {
@@ -11,6 +13,10 @@ public class LoggingTest {
 
     @Test public void logDisplaysMessage() {
         Logging classUnderTest = new Logging();
-        assert classUnderTest.log("Hello, World!", Logging.LogLevel.INFO).equals(GREEN + "Hello, World!" + RESET);
+        var now = java.time.LocalDateTime.now().format(Logging.TIMESTAMP_FORMAT);
+        
+        assertEquals(
+            GREEN + "[" + now + "] " + "Hello, World!" + RESET,
+            classUnderTest.log("Hello, World!", Logging.LogLevel.INFO));
     }
 }
