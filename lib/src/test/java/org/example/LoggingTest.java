@@ -5,7 +5,6 @@ package org.example;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;
-import java.io.FileDescriptor;
 import java.io.FileOutputStream;
 import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
@@ -61,8 +60,7 @@ public class LoggingTest {
     }
 
     @Test public void messagesBelowTheThresholdAreNotWritten() throws Exception {
-        String written = capture(log -> log.setLogLevel(Logging.LogLevel.WARN)
-                                           .debug("chatter"));
+        String written = capture(log -> log.debug("chatter"));
 
         assertEquals("", written);
     }
@@ -77,8 +75,7 @@ public class LoggingTest {
     }
 
     @Test public void traceMessagesAreBlue() throws Exception {
-        String written = capture(log -> log.setOutputStream(new FileDescriptor())
-                                           .trace("Tracing"));
+        String written = capture(log -> log.trace("Tracing"));
 
         assertEquals(expectedLine(BLUE, "Tracing"), written);
     }
