@@ -23,7 +23,7 @@ public class Logging {
     private PrintStream printer = System.out;
 
     public enum LogLevel {
-        DEBUG, INFO, WARN, ERROR
+        DEBUG, INFO, WARN, ERROR, TRACE, FATAL
     }
 
     private String color(LogLevel level) {
@@ -32,6 +32,8 @@ public class Logging {
             case INFO -> GREEN;
             case WARN -> YELLOW;
             case ERROR -> RED;
+            case TRACE -> BLUE;
+            case FATAL -> RED;
             default -> RESET;
         };
     }
@@ -46,11 +48,46 @@ public class Logging {
         return this;
     }
 
-    public synchronized void log(String message, LogLevel level) {
-        if (level.ordinal() < this.currentLogLevel.ordinal()) {
-            return;
+    private synchronized void log(String message, LogLevel level) {
+        try 
+        {
+            if (level.ordinal() < this.currentLogLevel.ordinal()) {
+                return;
+            }
+            var timestamp = LocalDateTime.now().format(TIMESTAMP_FORMAT);
+            var formattedLog = String.format("%s[%s] %s%s", color(level), timestamp, message, RESET);
+            this.printer.println(formattedLog);
         }
-        var timestamp = LocalDateTime.now().format(TIMESTAMP_FORMAT);
-        this.printer.println(color(level) + "[" + timestamp + "] " + message + RESET);
+        catch (Exception e) 
+        {
+            var timestamp = LocalDateTime.now().format(TIMESTAMP_FORMAT);
+            var formattedLog = String.format("%s[%s] %s%s", color(LogLevel.ERROR), timestamp, e.getMessage(), RESET);
+            this.printer.println(formattedLog);
+        }
+        
+    }
+
+    public synchronized void debug(String message) {
+        log(message, LogLevel.DEBUG);
+    }
+
+    public synchronized void info(String message) {
+        log(message, LogLevel.INFO);
+    }
+
+    public synchronized void warn(String message) {
+        log(message, LogLevel.WARN);
+    }
+
+    public synchronized void error(String message) {
+        log(message, LogLevel.ERROR);
+    }
+
+    public synchronized void trace(String message) {
+        log(message, LogLevel.TRACE);
+    }
+
+    public synchronized void fatal(String message) {
+        log(message, LogLevel.FATAL);
     }
 }

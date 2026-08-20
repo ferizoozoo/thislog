@@ -5,6 +5,7 @@ package org.example;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;
+import java.io.FileDescriptor;
 import java.io.FileOutputStream;
 import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
@@ -24,6 +25,7 @@ public class LoggingTest {
     private static final String GREEN = ESC + "[32m";
     private static final String YELLOW = ESC + "[33m";
     private static final String RED = ESC + "[31m";
+    private static final String BLUE = ESC + "[34m";
 
     @Rule public TemporaryFolder tempFolder = new TemporaryFolder();
 
@@ -41,37 +43,44 @@ public class LoggingTest {
     }
 
     @Test public void logWritesMessageToTheConfiguredDescriptor() throws Exception {
-        String written = capture(log -> log.log("Hello, World!", Logging.LogLevel.INFO));
+        String written = capture(log -> log.info("Hello, World!"));
 
         assertEquals(expectedLine(GREEN, "Hello, World!"), written);
     }
 
     @Test public void warnMessagesAreYellow() throws Exception {
-        String written = capture(log -> log.log("Careful", Logging.LogLevel.WARN));
+        String written = capture(log -> log.warn("Careful"));
 
         assertEquals(expectedLine(YELLOW, "Careful"), written);
     }
 
     @Test public void errorMessagesAreRed() throws Exception {
-        String written = capture(log -> log.log("Boom", Logging.LogLevel.ERROR));
+        String written = capture(log -> log.error("Boom"));
 
         assertEquals(expectedLine(RED, "Boom"), written);
     }
 
     @Test public void messagesBelowTheThresholdAreNotWritten() throws Exception {
         String written = capture(log -> log.setLogLevel(Logging.LogLevel.WARN)
-                                           .log("chatter", Logging.LogLevel.DEBUG));
+                                           .debug("chatter"));
 
         assertEquals("", written);
     }
 
     @Test public void successiveMessagesAccumulate() throws Exception {
         String written = capture(log -> {
-            log.log("first", Logging.LogLevel.INFO);
-            log.log("second", Logging.LogLevel.ERROR);
+            log.info("first");
+            log.error("second");
         });
 
         assertEquals(expectedLine(GREEN, "first") + expectedLine(RED, "second"), written);
+    }
+
+    @Test public void traceMessagesAreBlue() throws Exception {
+        String written = capture(log -> log.setOutputStream(new FileDescriptor())
+                                           .trace("Tracing"));
+
+        assertEquals(expectedLine(BLUE, "Tracing"), written);
     }
 
     // ---------------------------------------------------------------------
@@ -93,7 +102,7 @@ public class LoggingTest {
     @Test public void logGoesToStdoutByDefault() {
         ByteArrayOutputStream stdout = captureStdout();
 
-        new Logging().log("to stdout", Logging.LogLevel.INFO);
+        new Logging().info("to stdout");
 
         assertEquals(expectedLine(GREEN, "to stdout"), stdout.toString(StandardCharsets.UTF_8));
     }
@@ -101,7 +110,7 @@ public class LoggingTest {
     @Test public void settingADescriptorDivertsAwayFromStdout() throws Exception {
         ByteArrayOutputStream stdout = captureStdout();
 
-        String written = capture(log -> log.log("to a file", Logging.LogLevel.INFO));
+        String written = capture(log -> log.info("to a file"));
 
         assertEquals("stdout should be untouched once a descriptor is set",
             "", stdout.toString(StandardCharsets.UTF_8));
