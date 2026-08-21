@@ -9,7 +9,7 @@ import java.io.PrintStream;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 
-public class Logging {
+public class Logging implements Loggable {
     public static final DateTimeFormatter TIMESTAMP_FORMAT =
         DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
 
@@ -38,11 +38,11 @@ public class Logging {
         };
     }
 
-    public static Logging getLogger() {
+    public static Loggable getLogger() {
         return new Logging();
     }
 
-    public Logging setOutputStream(FileDescriptor fd) {
+    public Loggable setOutputStream(FileDescriptor fd) {
         this.printer = new PrintStream(new FileOutputStream(fd), true);
         return this;
     }

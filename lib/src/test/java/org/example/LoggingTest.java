@@ -26,14 +26,14 @@ public class LoggingTest {
     private static final String RED = ESC + "[31m";
     private static final String BLUE = ESC + "[34m";
 
-    private final Logging logger = Logging.getLogger();
+    private final Loggable loggable = Logging.getLogger();
 
     @Rule public TemporaryFolder tempFolder = new TemporaryFolder();
 
-    private String capture(Consumer<Logging> action) throws Exception {
+    private String capture(Consumer<Loggable> action) throws Exception {
         File sink = tempFolder.newFile();
         try (FileOutputStream fos = new FileOutputStream(sink)) {
-            action.accept(logger.setOutputStream(fos.getFD()));
+            action.accept(loggable.setOutputStream(fos.getFD()));
         }
         return Files.readString(sink.toPath(), StandardCharsets.UTF_8);
     }
@@ -44,40 +44,40 @@ public class LoggingTest {
     }
 
     @Test public void logWritesMessageToTheConfiguredDescriptor() throws Exception {
-        String written = capture(log -> log.info("Hello, World!"));
+        String written = capture(logger -> logger.info("Hello, World!"));
 
         assertEquals(expectedLine(GREEN, "Hello, World!"), written);
     }
 
     @Test public void warnMessagesAreYellow() throws Exception {
-        String written = capture(log -> log.warn("Careful"));
+        String written = capture(logger -> logger.warn("Careful"));
 
         assertEquals(expectedLine(YELLOW, "Careful"), written);
     }
 
     @Test public void errorMessagesAreRed() throws Exception {
-        String written = capture(log -> log.error("Boom"));
+        String written = capture(logger -> logger.error("Boom"));
 
         assertEquals(expectedLine(RED, "Boom"), written);
     }
 
     @Test public void messagesBelowTheThresholdAreNotWritten() throws Exception {
-        String written = capture(log -> log.debug("chatter"));
+        String written = capture(logger -> logger.debug("chatter"));
 
         assertEquals("", written);
     }
 
     @Test public void successiveMessagesAccumulate() throws Exception {
-        String written = capture(log -> {
-            log.info("first");
-            log.error("second");
+        String written = capture(logger -> {
+            logger.info("first");
+            logger.error("second");
         });
 
         assertEquals(expectedLine(GREEN, "first") + expectedLine(RED, "second"), written);
     }
 
     @Test public void traceMessagesAreBlue() throws Exception {
-        String written = capture(log -> log.trace("Tracing"));
+        String written = capture(logger -> logger.trace("Tracing"));
 
         assertEquals(expectedLine(BLUE, "Tracing"), written);
     }
@@ -109,7 +109,7 @@ public class LoggingTest {
     @Test public void settingADescriptorDivertsAwayFromStdout() throws Exception {
         ByteArrayOutputStream stdout = captureStdout();
 
-        String written = capture(log -> log.info("to a file"));
+        String written = capture(logger -> logger.info("to a file"));
 
         assertEquals("stdout should be untouched once a descriptor is set",
             "", stdout.toString(StandardCharsets.UTF_8));
