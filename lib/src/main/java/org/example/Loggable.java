@@ -1,7 +1,7 @@
 package org.example;
 
 public interface Loggable {
-    Loggable setOutputStream(java.io.FileDescriptor fd);
+    Loggable setOptions(LogOptions options);
 
     void info(String message);
     void warn(String message);

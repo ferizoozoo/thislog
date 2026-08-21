@@ -3,15 +3,15 @@
  */
 package org.example;
 
-import java.io.FileDescriptor;
 import java.io.FileOutputStream;
 import java.io.PrintStream;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 
 public class Logging implements Loggable {
-    public static final DateTimeFormatter TIMESTAMP_FORMAT =
-        DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
+
+    public static final DateTimeFormatter TIMESTAMP_FORMAT
+            = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
 
     private final String RESET = "\u001B[0m";
     private final String GREEN = "\u001B[32m";
@@ -19,22 +19,25 @@ public class Logging implements Loggable {
     private final String RED = "\u001B[31m";
     private final String BLUE = "\u001B[34m";
 
-    private LogLevel currentLogLevel = LogLevel.INFO;
+    private final LogLevel currentLogLevel = LogLevel.INFO;
     private PrintStream printer = System.out;
-
-    public enum LogLevel {
-        DEBUG, INFO, WARN, ERROR, TRACE, FATAL
-    }
-
+    /** True when {@code printer} is a stream this logger opened and must close. */
+    private boolean ownsPrinter = false;
+    
     private String color(LogLevel level) {
         return switch (level) {
-            case DEBUG -> BLUE;
-            case INFO -> GREEN;
-            case WARN -> YELLOW;
-            case ERROR -> RED;
-            case TRACE -> BLUE;
-            case FATAL -> RED;
-            default -> RESET;
+            case DEBUG ->
+                BLUE;
+            case INFO ->
+                GREEN;
+            case WARN ->
+                YELLOW;
+            case ERROR ->
+                RED;
+            case TRACE ->
+                BLUE;
+            case FATAL ->
+                RED;
         };
     }
 
@@ -42,28 +45,45 @@ public class Logging implements Loggable {
         return new Logging();
     }
 
-    public Loggable setOutputStream(FileDescriptor fd) {
-        this.printer = new PrintStream(new FileOutputStream(fd), true);
+    public Loggable setOptions(LogOptions options) {
+        var destination = options.getDestination();
+        if (destination == null) {
+            return this;
+        }
+        try {
+            PrintStream next = switch (destination) {
+                case LogDestination.Stdout ignored ->
+                    System.out;
+                case LogDestination.Stderr ignored ->
+                    System.err;
+                case LogDestination.LogFile logFile ->
+                    new PrintStream(new FileOutputStream(logFile.path(), true), true);
+            };
+            if (this.ownsPrinter) {
+                this.printer.close();
+            }
+            this.printer = next;
+            this.ownsPrinter = destination instanceof LogDestination.LogFile;
+        } catch (Exception e) {
+            this.printer.println("Failed to set log destination: " + e.getMessage());
+        }
         return this;
     }
 
     private synchronized void log(String message, LogLevel level) {
-        try 
-        {
-            if (level.ordinal() < this.currentLogLevel.ordinal()) {
+        try {
+            if (level.severity() < this.currentLogLevel.severity()) {
                 return;
             }
             var timestamp = LocalDateTime.now().format(TIMESTAMP_FORMAT);
             var formattedLog = String.format("%s[%s] %s%s", color(level), timestamp, message, RESET);
             this.printer.println(formattedLog);
-        }
-        catch (Exception e) 
-        {
+        } catch (Exception e) {
             var timestamp = LocalDateTime.now().format(TIMESTAMP_FORMAT);
             var formattedLog = String.format("%s[%s] %s%s", color(LogLevel.ERROR), timestamp, e.getMessage(), RESET);
             this.printer.println(formattedLog);
         }
-        
+
     }
 
     public synchronized void debug(String message) {

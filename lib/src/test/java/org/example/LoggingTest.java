@@ -5,7 +5,6 @@ package org.example;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;
-import java.io.FileOutputStream;
 import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -14,6 +13,7 @@ import java.util.function.Consumer;
 
 import org.junit.After;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
@@ -24,18 +24,17 @@ public class LoggingTest {
     private static final String GREEN = ESC + "[32m";
     private static final String YELLOW = ESC + "[33m";
     private static final String RED = ESC + "[31m";
-    private static final String BLUE = ESC + "[34m";
 
     private final Loggable loggable = Logging.getLogger();
 
     @Rule public TemporaryFolder tempFolder = new TemporaryFolder();
 
-    private String capture(Consumer<Loggable> action) throws Exception {
-        File sink = tempFolder.newFile();
-        try (FileOutputStream fos = new FileOutputStream(sink)) {
-            action.accept(loggable.setOutputStream(fos.getFD()));
-        }
-        return Files.readString(sink.toPath(), StandardCharsets.UTF_8);
+    private final PrintStream realStdout = System.out;
+    private final PrintStream realStderr = System.err;
+
+    @After public void restoreStandardStreams() {
+        System.setOut(realStdout);
+        System.setErr(realStderr);
     }
 
     private String expectedLine(String color, String message) {
@@ -43,7 +42,24 @@ public class LoggingTest {
         return color + "[" + now + "] " + message + RESET + System.lineSeparator();
     }
 
-    @Test public void logWritesMessageToTheConfiguredDescriptor() throws Exception {
+    private Loggable pointAt(LogDestination destination) {
+        return loggable.setOptions(LogOptions.initiateOptions().setDestination(destination));
+    }
+
+    /** Points the logger at a temp file, then returns everything it wrote there. */
+    private String capture(Consumer<Loggable> action) throws Exception {
+        File sink = tempFolder.newFile();
+
+        action.accept(pointAt(LogDestination.file(sink.getAbsolutePath())));
+
+        return Files.readString(sink.toPath(), StandardCharsets.UTF_8);
+    }
+
+    // ---------------------------------------------------------------------
+    // Levels and formatting.
+    // ---------------------------------------------------------------------
+
+    @Test public void logWritesMessageToTheConfiguredDestination() throws Exception {
         String written = capture(logger -> logger.info("Hello, World!"));
 
         assertEquals(expectedLine(GREEN, "Hello, World!"), written);
@@ -61,10 +77,23 @@ public class LoggingTest {
         assertEquals(expectedLine(RED, "Boom"), written);
     }
 
-    @Test public void messagesBelowTheThresholdAreNotWritten() throws Exception {
+    @Test public void fatalMessagesAreRed() throws Exception {
+        String written = capture(logger -> logger.fatal("Unrecoverable"));
+
+        assertEquals(expectedLine(RED, "Unrecoverable"), written);
+    }
+
+    @Test public void debugIsNotWrittenAtTheDefaultLevel() throws Exception {
         String written = capture(logger -> logger.debug("chatter"));
 
-        assertEquals("", written);
+        assertEquals("DEBUG is below the default INFO threshold", "", written);
+    }
+
+    @Test public void traceIsNotWrittenAtTheDefaultLevel() throws Exception {
+        String written = capture(logger -> logger.trace("Tracing"));
+
+        assertEquals("TRACE is the most verbose level, so the default INFO"
+            + " threshold must suppress it", "", written);
     }
 
     @Test public void successiveMessagesAccumulate() throws Exception {
@@ -76,21 +105,9 @@ public class LoggingTest {
         assertEquals(expectedLine(GREEN, "first") + expectedLine(RED, "second"), written);
     }
 
-    @Test public void traceMessagesAreBlue() throws Exception {
-        String written = capture(logger -> logger.trace("Tracing"));
-
-        assertEquals(expectedLine(BLUE, "Tracing"), written);
-    }
-
     // ---------------------------------------------------------------------
-    // Stdout.
+    // Destination selection: stdout, stderr, or a file.
     // ---------------------------------------------------------------------
-
-    private final PrintStream realStdout = System.out;
-
-    @After public void restoreStdout() {
-        System.setOut(realStdout);
-    }
 
     private ByteArrayOutputStream captureStdout() {
         var buffer = new ByteArrayOutputStream();
@@ -98,7 +115,13 @@ public class LoggingTest {
         return buffer;
     }
 
-    @Test public void logGoesToStdoutByDefault() {
+    private ByteArrayOutputStream captureStderr() {
+        var buffer = new ByteArrayOutputStream();
+        System.setErr(new PrintStream(buffer, true, StandardCharsets.UTF_8));
+        return buffer;
+    }
+
+    @Test public void logGoesToStdoutWhenNoDestinationIsSet() {
         ByteArrayOutputStream stdout = captureStdout();
 
         new Logging().info("to stdout");
@@ -106,13 +129,73 @@ public class LoggingTest {
         assertEquals(expectedLine(GREEN, "to stdout"), stdout.toString(StandardCharsets.UTF_8));
     }
 
-    @Test public void settingADescriptorDivertsAwayFromStdout() throws Exception {
+    @Test public void stdoutDestinationWritesToStdout() {
         ByteArrayOutputStream stdout = captureStdout();
+        ByteArrayOutputStream stderr = captureStderr();
+
+        pointAt(LogDestination.STDOUT).info("to stdout");
+
+        assertEquals(expectedLine(GREEN, "to stdout"), stdout.toString(StandardCharsets.UTF_8));
+        assertEquals("stderr must stay clean", "", stderr.toString(StandardCharsets.UTF_8));
+    }
+
+    @Test public void stderrDestinationWritesToStderr() {
+        ByteArrayOutputStream stdout = captureStdout();
+        ByteArrayOutputStream stderr = captureStderr();
+
+        pointAt(LogDestination.STDERR).info("to stderr");
+
+        assertEquals(expectedLine(GREEN, "to stderr"), stderr.toString(StandardCharsets.UTF_8));
+        assertEquals("stdout must stay clean", "", stdout.toString(StandardCharsets.UTF_8));
+    }
+
+    @Test public void fileDestinationDivertsAwayFromBothStandardStreams() throws Exception {
+        ByteArrayOutputStream stdout = captureStdout();
+        ByteArrayOutputStream stderr = captureStderr();
 
         String written = capture(logger -> logger.info("to a file"));
 
-        assertEquals("stdout should be untouched once a descriptor is set",
-            "", stdout.toString(StandardCharsets.UTF_8));
         assertEquals(expectedLine(GREEN, "to a file"), written);
+        assertEquals("stdout must stay clean", "", stdout.toString(StandardCharsets.UTF_8));
+        assertEquals("stderr must stay clean", "", stderr.toString(StandardCharsets.UTF_8));
+    }
+
+    @Test public void fileDestinationAppendsRatherThanTruncating() throws Exception {
+        File sink = tempFolder.newFile();
+        LogDestination target = LogDestination.file(sink.getAbsolutePath());
+
+        pointAt(target).info("first");
+        pointAt(target).info("second");
+
+        assertEquals(expectedLine(GREEN, "first") + expectedLine(GREEN, "second"),
+            Files.readString(sink.toPath(), StandardCharsets.UTF_8));
+    }
+
+    @Test public void switchingDestinationRedirectsSubsequentMessages() throws Exception {
+        File before = tempFolder.newFile();
+        File after = tempFolder.newFile();
+
+        pointAt(LogDestination.file(before.getAbsolutePath())).info("early");
+        pointAt(LogDestination.file(after.getAbsolutePath())).info("late");
+
+        assertEquals(expectedLine(GREEN, "early"),
+            Files.readString(before.toPath(), StandardCharsets.UTF_8));
+        assertEquals(expectedLine(GREEN, "late"),
+            Files.readString(after.toPath(), StandardCharsets.UTF_8));
+    }
+
+    @Test public void anUnopenableFileLeavesTheCurrentDestinationIntact() {
+        ByteArrayOutputStream stdout = captureStdout();
+        pointAt(LogDestination.STDOUT);
+
+        // A directory can never be opened as a log file.
+        pointAt(LogDestination.file(tempFolder.getRoot().getAbsolutePath()));
+        loggable.info("still working");
+
+        String out = stdout.toString(StandardCharsets.UTF_8);
+        assertTrue("the failure should be reported: " + out,
+            out.contains("Failed to set log destination"));
+        assertTrue("logging should continue on the previous destination: " + out,
+            out.endsWith(expectedLine(GREEN, "still working")));
     }
 }
