@@ -26,12 +26,14 @@ public class LoggingTest {
     private static final String RED = ESC + "[31m";
     private static final String BLUE = ESC + "[34m";
 
+    private final Logging logger = Logging.getLogger();
+
     @Rule public TemporaryFolder tempFolder = new TemporaryFolder();
 
     private String capture(Consumer<Logging> action) throws Exception {
         File sink = tempFolder.newFile();
         try (FileOutputStream fos = new FileOutputStream(sink)) {
-            action.accept(new Logging().setOutputStream(fos.getFD()));
+            action.accept(logger.setOutputStream(fos.getFD()));
         }
         return Files.readString(sink.toPath(), StandardCharsets.UTF_8);
     }

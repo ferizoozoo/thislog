@@ -38,9 +38,8 @@ public class Logging {
         };
     }
 
-    public Logging setLogLevel(LogLevel level) {
-        this.currentLogLevel = level;
-        return this;
+    public static Logging getLogger() {
+        return new Logging();
     }
 
     public Logging setOutputStream(FileDescriptor fd) {
