@@ -10,36 +10,12 @@ import java.time.format.DateTimeFormatter;
 
 public class Logging implements Loggable {
 
-    public static final DateTimeFormatter TIMESTAMP_FORMAT
-            = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
-
-    private final String RESET = "\u001B[0m";
-    private final String GREEN = "\u001B[32m";
-    private final String YELLOW = "\u001B[33m";
-    private final String RED = "\u001B[31m";
-    private final String BLUE = "\u001B[34m";
+    public static final DateTimeFormatter TIMESTAMP_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
 
     private final LogLevel currentLogLevel = LogLevel.INFO;
     private PrintStream printer = System.out;
     /** True when {@code printer} is a stream this logger opened and must close. */
     private boolean ownsPrinter = false;
-    
-    private String color(LogLevel level) {
-        return switch (level) {
-            case DEBUG ->
-                BLUE;
-            case INFO ->
-                GREEN;
-            case WARN ->
-                YELLOW;
-            case ERROR ->
-                RED;
-            case TRACE ->
-                BLUE;
-            case FATAL ->
-                RED;
-        };
-    }
 
     public static Loggable getLogger() {
         return new Logging();
@@ -76,11 +52,13 @@ public class Logging implements Loggable {
                 return;
             }
             var timestamp = LocalDateTime.now().format(TIMESTAMP_FORMAT);
-            var formattedLog = String.format("%s[%s] %s%s", color(level), timestamp, message, RESET);
+            var formattedLog = String.format("%s[%s] %s%s", LogLevel.color(level), timestamp, message,
+                    LogLevel.color(LogLevel.RESET));
             this.printer.println(formattedLog);
         } catch (Exception e) {
             var timestamp = LocalDateTime.now().format(TIMESTAMP_FORMAT);
-            var formattedLog = String.format("%s[%s] %s%s", color(LogLevel.ERROR), timestamp, e.getMessage(), RESET);
+            var formattedLog = String.format("%s[%s] %s%s", LogLevel.color(LogLevel.ERROR), timestamp, e.getMessage(),
+                    LogLevel.RESET);
             this.printer.println(formattedLog);
         }
 
