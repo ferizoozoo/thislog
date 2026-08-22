@@ -8,12 +8,15 @@ import java.io.File;
 import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.time.Duration;
 import java.time.LocalDateTime;
-import java.util.function.Consumer;
+import java.util.ArrayList;
+import java.util.List;
 
 import org.junit.After;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
+import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
@@ -24,178 +27,330 @@ public class LoggingTest {
     private static final String GREEN = ESC + "[32m";
     private static final String YELLOW = ESC + "[33m";
     private static final String RED = ESC + "[31m";
+    private static final String BLUE = ESC + "[34m";
 
-    private final Loggable loggable = Logging.getLogger();
+    private static final String TIMESTAMP_PATTERN = "\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}";
+    private static final String NL = System.lineSeparator();
 
     @Rule public TemporaryFolder tempFolder = new TemporaryFolder();
 
+    // ---------------------------------------------------------------------
+    // A Formatable test double.
+    //
+    // Logging hands the level colour, the timestamp and the message to the
+    // formatter, then prints the formatter itself, so whatever the formatter
+    // stringifies to is the line that reaches the destination. Recording the
+    // arguments here is what makes those three values assertable.
+    // ---------------------------------------------------------------------
+
+    private record Call(String color, String timestamp, String message) {
+        String rendered() {
+            return color + "[" + timestamp + "] " + message + RESET;
+        }
+    }
+
+    private static final class RecordingFormatter implements Formatable {
+        private final List<Call> calls = new ArrayList<>();
+
+        @Override public String getFormattedString(String format, Object... args) {
+            var call = new Call(
+                format,
+                args.length > 0 ? String.valueOf(args[0]) : "",
+                args.length > 1 ? String.valueOf(args[1]) : "");
+            calls.add(call);
+            return call.rendered();
+        }
+
+        @Override public String toString() {
+            return calls.isEmpty() ? "" : calls.get(calls.size() - 1).rendered();
+        }
+
+        Call only() {
+            assertEquals("expected exactly one formatted line", 1, calls.size());
+            return calls.get(0);
+        }
+    }
+
+    // ---------------------------------------------------------------------
+    // Standard streams are redirected for every test, so a logger built with
+    // the default destination writes somewhere we can read back.
+    // ---------------------------------------------------------------------
+
     private final PrintStream realStdout = System.out;
     private final PrintStream realStderr = System.err;
+
+    private ByteArrayOutputStream stdout;
+    private ByteArrayOutputStream stderr;
+
+    @Before public void redirectStandardStreams() {
+        stdout = new ByteArrayOutputStream();
+        stderr = new ByteArrayOutputStream();
+        System.setOut(new PrintStream(stdout, true, StandardCharsets.UTF_8));
+        System.setErr(new PrintStream(stderr, true, StandardCharsets.UTF_8));
+    }
 
     @After public void restoreStandardStreams() {
         System.setOut(realStdout);
         System.setErr(realStderr);
     }
 
-    private String expectedLine(String color, String message) {
-        var now = LocalDateTime.now().format(Logging.TIMESTAMP_FORMAT);
-        return color + "[" + now + "] " + message + RESET + System.lineSeparator();
+    private String stdoutText() {
+        return stdout.toString(StandardCharsets.UTF_8);
     }
 
-    private Loggable pointAt(LogDestination destination) {
-        return loggable.setOptions(LogOptions.initiateOptions().setDestination(destination));
+    private String stderrText() {
+        return stderr.toString(StandardCharsets.UTF_8);
     }
 
-    /** Points the logger at a temp file, then returns everything it wrote there. */
-    private String capture(Consumer<Loggable> action) throws Exception {
+    private static LogOptions to(LogDestination destination) {
+        return LogOptions.initiateOptions().setDestination(destination);
+    }
+
+    // ---------------------------------------------------------------------
+    // What each level hands to the formatter.
+    // ---------------------------------------------------------------------
+
+    @Test public void infoIsGreenAndCarriesTheMessage() {
+        var formatter = new RecordingFormatter();
+
+        Logging.getLogger(formatter).info("Hello, World!");
+
+        assertEquals(GREEN, formatter.only().color());
+        assertEquals("Hello, World!", formatter.only().message());
+    }
+
+    @Test public void warnMessagesAreYellow() {
+        var formatter = new RecordingFormatter();
+
+        Logging.getLogger(formatter).warn("Careful");
+
+        assertEquals(YELLOW, formatter.only().color());
+        assertEquals("Careful", formatter.only().message());
+    }
+
+    @Test public void errorMessagesAreRed() {
+        var formatter = new RecordingFormatter();
+
+        Logging.getLogger(formatter).error("Boom");
+
+        assertEquals(RED, formatter.only().color());
+        assertEquals("Boom", formatter.only().message());
+    }
+
+    @Test public void fatalMessagesAreRed() {
+        var formatter = new RecordingFormatter();
+
+        Logging.getLogger(formatter).fatal("Unrecoverable");
+
+        assertEquals(RED, formatter.only().color());
+        assertEquals("Unrecoverable", formatter.only().message());
+    }
+
+    @Test public void theRenderedFormatterIsWhatReachesTheDestination() {
+        var formatter = new RecordingFormatter();
+
+        Logging.getLogger(formatter).info("on the wire");
+
+        assertEquals(formatter.only().rendered() + NL, stdoutText());
+    }
+
+    // ---------------------------------------------------------------------
+    // Timestamps.
+    // ---------------------------------------------------------------------
+
+    @Test public void theTimestampUsesTheConfiguredPattern() {
+        var formatter = new RecordingFormatter();
+
+        Logging.getLogger(formatter).info("stamped");
+
+        String timestamp = formatter.only().timestamp();
+        assertTrue("unexpected timestamp: " + timestamp, timestamp.matches(TIMESTAMP_PATTERN));
+    }
+
+    @Test public void theTimestampIsTheCurrentTime() {
+        var formatter = new RecordingFormatter();
+
+        Logging.getLogger(formatter).info("stamped");
+
+        var logged = LocalDateTime.parse(formatter.only().timestamp(), Formatter.TIMESTAMP_FORMAT);
+        var drift = Duration.between(logged, LocalDateTime.now()).abs();
+        assertTrue("timestamp drifted by " + drift, drift.compareTo(Duration.ofMinutes(2)) < 0);
+    }
+
+    // ---------------------------------------------------------------------
+    // Level filtering. The logger sits at INFO, so anything less severe is
+    // dropped before it ever reaches the formatter.
+    // ---------------------------------------------------------------------
+
+    @Test public void debugIsBelowTheThresholdAndIsDropped() {
+        var formatter = new RecordingFormatter();
+
+        Logging.getLogger(formatter).debug("chatter");
+
+        assertEquals(List.of(), formatter.calls);
+        assertEquals("", stdoutText());
+    }
+
+    @Test public void traceIsBelowTheThresholdAndIsDropped() {
+        var formatter = new RecordingFormatter();
+
+        Logging.getLogger(formatter).trace("Tracing");
+
+        assertEquals(List.of(), formatter.calls);
+        assertEquals("", stdoutText());
+    }
+
+    @Test public void everyLevelFromInfoUpwardsIsWritten() {
+        var formatter = new RecordingFormatter();
+        var log = Logging.getLogger(formatter);
+
+        log.trace("dropped");
+        log.debug("dropped");
+        log.info("kept");
+        log.warn("kept");
+        log.error("kept");
+        log.fatal("kept");
+
+        assertEquals(4, formatter.calls.size());
+        assertEquals(4, stdoutText().lines().count());
+    }
+
+    @Test public void successiveMessagesAccumulateInOrder() {
+        var formatter = new RecordingFormatter();
+        var log = Logging.getLogger(formatter);
+
+        log.info("first");
+        log.error("second");
+
+        assertEquals(2, formatter.calls.size());
+        assertEquals("first", formatter.calls.get(0).message());
+        assertEquals("second", formatter.calls.get(1).message());
+        assertEquals(
+            formatter.calls.get(0).rendered() + NL + formatter.calls.get(1).rendered() + NL,
+            stdoutText());
+    }
+
+    // ---------------------------------------------------------------------
+    // Destinations.
+    // ---------------------------------------------------------------------
+
+    @Test public void logsGoToStdoutWhenNoDestinationIsConfigured() {
+        var formatter = new RecordingFormatter();
+
+        Logging.getLogger(formatter).info("to stdout");
+
+        assertEquals(formatter.only().rendered() + NL, stdoutText());
+        assertEquals("", stderrText());
+    }
+
+    @Test public void theStdoutDestinationIsResolvedWhenOptionsAreApplied() {
+        var formatter = new RecordingFormatter();
+        var log = Logging.getLogger(formatter);
+
+        var replacement = new ByteArrayOutputStream();
+        System.setOut(new PrintStream(replacement, true, StandardCharsets.UTF_8));
+        log.setOptions(to(LogDestination.STDOUT)).info("to the new stdout");
+
+        assertEquals("the stream captured at construction should be left alone",
+            "", stdoutText());
+        assertEquals(formatter.only().rendered() + NL,
+            replacement.toString(StandardCharsets.UTF_8));
+    }
+
+    @Test public void theStderrDestinationDivertsAwayFromStdout() {
+        var formatter = new RecordingFormatter();
+
+        Logging.getLogger(formatter).setOptions(to(LogDestination.STDERR)).info("to stderr");
+
+        assertEquals(formatter.only().rendered() + NL, stderrText());
+        assertEquals("stdout should be untouched once stderr is selected", "", stdoutText());
+    }
+
+    @Test public void aFileDestinationDivertsAwayFromStdout() throws Exception {
         File sink = tempFolder.newFile();
+        var formatter = new RecordingFormatter();
+        var log = Logging.getLogger(formatter);
 
-        action.accept(pointAt(LogDestination.file(sink.getAbsolutePath())));
+        log.setOptions(to(LogDestination.file(sink.getAbsolutePath()))).info("to a file");
+        log.setOptions(to(LogDestination.STDOUT));
 
-        return Files.readString(sink.toPath(), StandardCharsets.UTF_8);
+        assertEquals(formatter.only().rendered() + NL,
+            Files.readString(sink.toPath(), StandardCharsets.UTF_8));
+        assertEquals("stdout should be untouched once a file is selected", "", stdoutText());
     }
 
-    // ---------------------------------------------------------------------
-    // Levels and formatting.
-    // ---------------------------------------------------------------------
-
-    @Test public void logWritesMessageToTheConfiguredDestination() throws Exception {
-        String written = capture(logger -> logger.info("Hello, World!"));
-
-        assertEquals(expectedLine(GREEN, "Hello, World!"), written);
-    }
-
-    @Test public void warnMessagesAreYellow() throws Exception {
-        String written = capture(logger -> logger.warn("Careful"));
-
-        assertEquals(expectedLine(YELLOW, "Careful"), written);
-    }
-
-    @Test public void errorMessagesAreRed() throws Exception {
-        String written = capture(logger -> logger.error("Boom"));
-
-        assertEquals(expectedLine(RED, "Boom"), written);
-    }
-
-    @Test public void fatalMessagesAreRed() throws Exception {
-        String written = capture(logger -> logger.fatal("Unrecoverable"));
-
-        assertEquals(expectedLine(RED, "Unrecoverable"), written);
-    }
-
-    @Test public void debugIsNotWrittenAtTheDefaultLevel() throws Exception {
-        String written = capture(logger -> logger.debug("chatter"));
-
-        assertEquals("DEBUG is below the default INFO threshold", "", written);
-    }
-
-    @Test public void traceIsNotWrittenAtTheDefaultLevel() throws Exception {
-        String written = capture(logger -> logger.trace("Tracing"));
-
-        assertEquals("TRACE is the most verbose level, so the default INFO"
-            + " threshold must suppress it", "", written);
-    }
-
-    @Test public void successiveMessagesAccumulate() throws Exception {
-        String written = capture(logger -> {
-            logger.info("first");
-            logger.error("second");
-        });
-
-        assertEquals(expectedLine(GREEN, "first") + expectedLine(RED, "second"), written);
-    }
-
-    // ---------------------------------------------------------------------
-    // Destination selection: stdout, stderr, or a file.
-    // ---------------------------------------------------------------------
-
-    private ByteArrayOutputStream captureStdout() {
-        var buffer = new ByteArrayOutputStream();
-        System.setOut(new PrintStream(buffer, true, StandardCharsets.UTF_8));
-        return buffer;
-    }
-
-    private ByteArrayOutputStream captureStderr() {
-        var buffer = new ByteArrayOutputStream();
-        System.setErr(new PrintStream(buffer, true, StandardCharsets.UTF_8));
-        return buffer;
-    }
-
-    @Test public void logGoesToStdoutWhenNoDestinationIsSet() {
-        ByteArrayOutputStream stdout = captureStdout();
-
-        new Logging().info("to stdout");
-
-        assertEquals(expectedLine(GREEN, "to stdout"), stdout.toString(StandardCharsets.UTF_8));
-    }
-
-    @Test public void stdoutDestinationWritesToStdout() {
-        ByteArrayOutputStream stdout = captureStdout();
-        ByteArrayOutputStream stderr = captureStderr();
-
-        pointAt(LogDestination.STDOUT).info("to stdout");
-
-        assertEquals(expectedLine(GREEN, "to stdout"), stdout.toString(StandardCharsets.UTF_8));
-        assertEquals("stderr must stay clean", "", stderr.toString(StandardCharsets.UTF_8));
-    }
-
-    @Test public void stderrDestinationWritesToStderr() {
-        ByteArrayOutputStream stdout = captureStdout();
-        ByteArrayOutputStream stderr = captureStderr();
-
-        pointAt(LogDestination.STDERR).info("to stderr");
-
-        assertEquals(expectedLine(GREEN, "to stderr"), stderr.toString(StandardCharsets.UTF_8));
-        assertEquals("stdout must stay clean", "", stdout.toString(StandardCharsets.UTF_8));
-    }
-
-    @Test public void fileDestinationDivertsAwayFromBothStandardStreams() throws Exception {
-        ByteArrayOutputStream stdout = captureStdout();
-        ByteArrayOutputStream stderr = captureStderr();
-
-        String written = capture(logger -> logger.info("to a file"));
-
-        assertEquals(expectedLine(GREEN, "to a file"), written);
-        assertEquals("stdout must stay clean", "", stdout.toString(StandardCharsets.UTF_8));
-        assertEquals("stderr must stay clean", "", stderr.toString(StandardCharsets.UTF_8));
-    }
-
-    @Test public void fileDestinationAppendsRatherThanTruncating() throws Exception {
+    @Test public void reopeningAFileDestinationAppendsRatherThanTruncates() throws Exception {
         File sink = tempFolder.newFile();
-        LogDestination target = LogDestination.file(sink.getAbsolutePath());
+        var formatter = new RecordingFormatter();
+        var log = Logging.getLogger(formatter);
+        var destination = to(LogDestination.file(sink.getAbsolutePath()));
 
-        pointAt(target).info("first");
-        pointAt(target).info("second");
+        log.setOptions(destination).info("first");
+        log.setOptions(destination).info("second");
+        log.setOptions(to(LogDestination.STDOUT));
 
-        assertEquals(expectedLine(GREEN, "first") + expectedLine(GREEN, "second"),
+        assertEquals(
+            formatter.calls.get(0).rendered() + NL + formatter.calls.get(1).rendered() + NL,
             Files.readString(sink.toPath(), StandardCharsets.UTF_8));
     }
 
-    @Test public void switchingDestinationRedirectsSubsequentMessages() throws Exception {
-        File before = tempFolder.newFile();
-        File after = tempFolder.newFile();
+    @Test public void optionsWithoutADestinationLeaveThePrinterAlone() {
+        var formatter = new RecordingFormatter();
 
-        pointAt(LogDestination.file(before.getAbsolutePath())).info("early");
-        pointAt(LogDestination.file(after.getAbsolutePath())).info("late");
+        Logging.getLogger(formatter)
+            .setOptions(LogOptions.initiateOptions())
+            .info("still on stdout");
 
-        assertEquals(expectedLine(GREEN, "early"),
-            Files.readString(before.toPath(), StandardCharsets.UTF_8));
-        assertEquals(expectedLine(GREEN, "late"),
-            Files.readString(after.toPath(), StandardCharsets.UTF_8));
+        assertEquals(formatter.only().rendered() + NL, stdoutText());
     }
 
-    @Test public void anUnopenableFileLeavesTheCurrentDestinationIntact() {
-        ByteArrayOutputStream stdout = captureStdout();
-        pointAt(LogDestination.STDOUT);
+    @Test public void aFileDestinationSurvivesAnEmptyOptionsUpdate() throws Exception {
+        File sink = tempFolder.newFile();
+        var formatter = new RecordingFormatter();
+        var log = Logging.getLogger(formatter);
 
-        // A directory can never be opened as a log file.
-        pointAt(LogDestination.file(tempFolder.getRoot().getAbsolutePath()));
-        loggable.info("still working");
+        log.setOptions(to(LogDestination.file(sink.getAbsolutePath())));
+        log.setOptions(LogOptions.initiateOptions()).info("still on the file");
+        log.setOptions(to(LogDestination.STDOUT));
 
-        String out = stdout.toString(StandardCharsets.UTF_8);
-        assertTrue("the failure should be reported: " + out,
-            out.contains("Failed to set log destination"));
-        assertTrue("logging should continue on the previous destination: " + out,
-            out.endsWith(expectedLine(GREEN, "still working")));
+        assertEquals(formatter.only().rendered() + NL,
+            Files.readString(sink.toPath(), StandardCharsets.UTF_8));
+        assertEquals("", stdoutText());
+    }
+
+    // ---------------------------------------------------------------------
+    // The shipped Formatter.
+    // ---------------------------------------------------------------------
+
+    @Test public void theShippedFormatterEmitsOneLinePerCall() {
+        var log = Logging.getLogger(new Formatter());
+
+        log.info("first");
+        log.warn("second");
+        log.debug("dropped");
+
+        assertEquals(2, stdoutText().lines().count());
+    }
+
+    // ---------------------------------------------------------------------
+    // Colours are a property of the level itself.
+    // ---------------------------------------------------------------------
+
+    @Test public void everyLevelMapsToAColour() {
+        assertEquals(BLUE, LogLevel.color(LogLevel.TRACE));
+        assertEquals(BLUE, LogLevel.color(LogLevel.DEBUG));
+        assertEquals(GREEN, LogLevel.color(LogLevel.INFO));
+        assertEquals(YELLOW, LogLevel.color(LogLevel.WARN));
+        assertEquals(RED, LogLevel.color(LogLevel.ERROR));
+        assertEquals(RED, LogLevel.color(LogLevel.FATAL));
+        assertEquals(RESET, LogLevel.color(LogLevel.RESET));
+    }
+
+    @Test public void severityIncreasesWithTheLevel() {
+        assertTrue(LogLevel.TRACE.severity() < LogLevel.DEBUG.severity());
+        assertTrue(LogLevel.DEBUG.severity() < LogLevel.INFO.severity());
+        assertTrue(LogLevel.INFO.severity() < LogLevel.WARN.severity());
+        assertTrue(LogLevel.WARN.severity() < LogLevel.ERROR.severity());
+        assertTrue(LogLevel.ERROR.severity() < LogLevel.FATAL.severity());
     }
 }

@@ -6,19 +6,24 @@ package org.example;
 import java.io.FileOutputStream;
 import java.io.PrintStream;
 import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 
 public class Logging implements Loggable {
 
-    public static final DateTimeFormatter TIMESTAMP_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
+    private Formatable format;
 
     private final LogLevel currentLogLevel = LogLevel.INFO;
     private PrintStream printer = System.out;
-    /** True when {@code printer} is a stream this logger opened and must close. */
     private boolean ownsPrinter = false;
 
-    public static Loggable getLogger() {
-        return new Logging();
+    public static Loggable getLogger(Formatable formatter) {
+        var logger = new Logging();
+        logger.format = formatter;
+        return logger;
+    }
+
+    public Loggable setFormatterWithArgs(Formatable formatter) {
+        this.format = formatter;
+        return this;
     }
 
     public Loggable setOptions(LogOptions options) {
@@ -51,15 +56,13 @@ public class Logging implements Loggable {
             if (level.severity() < this.currentLogLevel.severity()) {
                 return;
             }
-            var timestamp = LocalDateTime.now().format(TIMESTAMP_FORMAT);
-            var formattedLog = String.format("%s[%s] %s%s", LogLevel.color(level), timestamp, message,
-                    LogLevel.color(LogLevel.RESET));
-            this.printer.println(formattedLog);
+            var timestamp = LocalDateTime.now().format(Formatter.TIMESTAMP_FORMAT);
+            this.format.getFormattedString(LogLevel.color(level), timestamp, message);
+            this.printer.println(this.format);
         } catch (Exception e) {
-            var timestamp = LocalDateTime.now().format(TIMESTAMP_FORMAT);
-            var formattedLog = String.format("%s[%s] %s%s", LogLevel.color(LogLevel.ERROR), timestamp, e.getMessage(),
-                    LogLevel.RESET);
-            this.printer.println(formattedLog);
+            var timestamp = LocalDateTime.now().format(Formatter.TIMESTAMP_FORMAT);
+            this.format.getFormattedString(LogLevel.color(LogLevel.ERROR), timestamp, e.getMessage());
+            this.printer.println(this.format);
         }
 
     }
