@@ -5,11 +5,10 @@ package org.example;
 
 import java.io.FileOutputStream;
 import java.io.PrintStream;
-import java.time.LocalDateTime;
 
 public class Logging implements Loggable {
 
-    private Formatable format;
+    private Formatable formatter;
 
     private final LogLevel currentLogLevel = LogLevel.INFO;
     private PrintStream printer = System.out;
@@ -17,13 +16,8 @@ public class Logging implements Loggable {
 
     public static Loggable getLogger(Formatable formatter) {
         var logger = new Logging();
-        logger.format = formatter;
+        logger.formatter = formatter;
         return logger;
-    }
-
-    public Loggable setFormatterWithArgs(Formatable formatter) {
-        this.format = formatter;
-        return this;
     }
 
     public Loggable setOptions(LogOptions options) {
@@ -52,19 +46,26 @@ public class Logging implements Loggable {
     }
 
     private synchronized void log(String message, LogLevel level) {
-        try {
-            if (level.severity() < this.currentLogLevel.severity()) {
-                return;
-            }
-            var timestamp = LocalDateTime.now().format(Formatter.TIMESTAMP_FORMAT);
-            this.format.getFormattedString(LogLevel.color(level), timestamp, message);
-            this.printer.println(this.format);
-        } catch (Exception e) {
-            var timestamp = LocalDateTime.now().format(Formatter.TIMESTAMP_FORMAT);
-            this.format.getFormattedString(LogLevel.color(LogLevel.ERROR), timestamp, e.getMessage());
-            this.printer.println(this.format);
+        if (level.severity() < this.currentLogLevel.severity()) {
+            return;
         }
+        try {
+            var formattedMessage = this.formatter.getFormattedString(level, message);
+            this.printer.println(formattedMessage);
+        } catch (Exception e) {
+            reportFormattingFailure(e);
+        }
+    }
 
+    private void reportFormattingFailure(Exception failure) {
+        try {
+            var formattedError = this.formatter.getFormattedString(LogLevel.ERROR, failure.getMessage());
+            this.printer.println(formattedError);
+        } catch (Exception alsoFailed) {
+            this.printer.println(LogLevel.color(LogLevel.ERROR)
+                    + "Failed to format log message: " + failure.getMessage()
+                    + LogLevel.color(LogLevel.RESET));
+        }
     }
 
     public synchronized void debug(String message) {
