@@ -128,6 +128,11 @@ public class LoggingTest {
         return LogOptions.initiateOptions().setDestination(destination);
     }
 
+    /** Logging only publishes the two-argument factory, so tests go through this. */
+    private static Loggable logger(Formatable formatter) {
+        return Logging.getLogger(formatter, LogOptions.initiateOptions());
+    }
+
     // ---------------------------------------------------------------------
     // What each level hands to the formatter.
     // ---------------------------------------------------------------------
@@ -136,7 +141,7 @@ public class LoggingTest {
     public void infoIsFormattedAtInfoAndCarriesTheMessage() {
         var formatter = new RecordingFormatter();
 
-        Logging.getLogger(formatter).info("Hello, World!");
+        logger(formatter).info("Hello, World!");
 
         assertEquals(LogLevel.INFO, formatter.only().level());
         assertEquals("Hello, World!", formatter.only().message());
@@ -146,7 +151,7 @@ public class LoggingTest {
     public void warnIsFormattedAtWarn() {
         var formatter = new RecordingFormatter();
 
-        Logging.getLogger(formatter).warn("Careful");
+        logger(formatter).warn("Careful");
 
         assertEquals(LogLevel.WARN, formatter.only().level());
         assertEquals("Careful", formatter.only().message());
@@ -156,7 +161,7 @@ public class LoggingTest {
     public void errorIsFormattedAtError() {
         var formatter = new RecordingFormatter();
 
-        Logging.getLogger(formatter).error("Boom");
+        logger(formatter).error("Boom");
 
         assertEquals(LogLevel.ERROR, formatter.only().level());
         assertEquals("Boom", formatter.only().message());
@@ -166,7 +171,7 @@ public class LoggingTest {
     public void fatalIsFormattedAtFatal() {
         var formatter = new RecordingFormatter();
 
-        Logging.getLogger(formatter).fatal("Unrecoverable");
+        logger(formatter).fatal("Unrecoverable");
 
         assertEquals(LogLevel.FATAL, formatter.only().level());
         assertEquals("Unrecoverable", formatter.only().message());
@@ -175,7 +180,7 @@ public class LoggingTest {
     @Test
     public void theLevelDecidesTheColourTheFormatterCanReachFor() {
         var formatter = new RecordingFormatter();
-        var log = Logging.getLogger(formatter);
+        var log = logger(formatter);
 
         log.info("green");
         log.warn("yellow");
@@ -190,7 +195,7 @@ public class LoggingTest {
     public void theLoggerPassesNoExtraFormatArguments() {
         var formatter = new RecordingFormatter();
 
-        Logging.getLogger(formatter).info("plain");
+        logger(formatter).info("plain");
 
         assertEquals(List.of(), formatter.only().args());
     }
@@ -203,56 +208,62 @@ public class LoggingTest {
     public void theFormattedStringIsWhatReachesTheDestination() {
         var formatter = new RecordingFormatter();
 
-        Logging.getLogger(formatter).info("on the wire");
+        logger(formatter).info("on the wire");
 
         assertEquals(formatter.only().rendered() + NL, stdoutText());
     }
 
     // ---------------------------------------------------------------------
-    // Level filtering. The logger sits at INFO, so anything less severe is
-    // dropped before it ever reaches the formatter.
+    // Levels. The logger carries no threshold of its own: every level is
+    // handed to the formatter and written, and severity is left for a
+    // caller to compare.
     // ---------------------------------------------------------------------
 
     @Test
-    public void debugIsBelowTheThresholdAndIsDropped() {
+    public void debugIsFormattedAtDebugAndIsWritten() {
         var formatter = new RecordingFormatter();
 
-        Logging.getLogger(formatter).debug("chatter");
+        logger(formatter).debug("chatter");
 
-        assertEquals(List.of(), formatter.calls);
-        assertEquals("", stdoutText());
+        assertEquals(LogLevel.DEBUG, formatter.only().level());
+        assertEquals("chatter", formatter.only().message());
+        assertEquals(formatter.only().rendered() + NL, stdoutText());
     }
 
     @Test
-    public void traceIsBelowTheThresholdAndIsDropped() {
+    public void traceIsFormattedAtTraceAndIsWritten() {
         var formatter = new RecordingFormatter();
 
-        Logging.getLogger(formatter).trace("Tracing");
+        logger(formatter).trace("Tracing");
 
-        assertEquals(List.of(), formatter.calls);
-        assertEquals("", stdoutText());
+        assertEquals(LogLevel.TRACE, formatter.only().level());
+        assertEquals("Tracing", formatter.only().message());
+        assertEquals(formatter.only().rendered() + NL, stdoutText());
     }
 
     @Test
-    public void everyLevelFromInfoUpwardsIsWritten() {
+    public void everyLevelIsWritten() {
         var formatter = new RecordingFormatter();
-        var log = Logging.getLogger(formatter);
+        var log = logger(formatter);
 
-        log.trace("dropped");
-        log.debug("dropped");
+        log.trace("kept");
+        log.debug("kept");
         log.info("kept");
         log.warn("kept");
         log.error("kept");
         log.fatal("kept");
 
-        assertEquals(4, formatter.calls.size());
-        assertEquals(4, stdoutText().lines().count());
+        assertEquals(
+                List.of(LogLevel.TRACE, LogLevel.DEBUG, LogLevel.INFO,
+                        LogLevel.WARN, LogLevel.ERROR, LogLevel.FATAL),
+                formatter.calls.stream().map(Call::level).toList());
+        assertEquals(6, stdoutText().lines().count());
     }
 
     @Test
     public void successiveMessagesAccumulateInOrder() {
         var formatter = new RecordingFormatter();
-        var log = Logging.getLogger(formatter);
+        var log = logger(formatter);
 
         log.info("first");
         log.error("second");
@@ -273,7 +284,7 @@ public class LoggingTest {
     public void logsGoToStdoutWhenNoDestinationIsConfigured() {
         var formatter = new RecordingFormatter();
 
-        Logging.getLogger(formatter).info("to stdout");
+        logger(formatter).info("to stdout");
 
         assertEquals(formatter.only().rendered() + NL, stdoutText());
         assertEquals("", stderrText());
@@ -282,7 +293,7 @@ public class LoggingTest {
     @Test
     public void theStdoutDestinationIsResolvedWhenOptionsAreApplied() {
         var formatter = new RecordingFormatter();
-        var log = Logging.getLogger(formatter);
+        var log = logger(formatter);
 
         var replacement = new ByteArrayOutputStream();
         System.setOut(new PrintStream(replacement, true, StandardCharsets.UTF_8));
@@ -298,7 +309,7 @@ public class LoggingTest {
     public void theStderrDestinationDivertsAwayFromStdout() {
         var formatter = new RecordingFormatter();
 
-        Logging.getLogger(formatter).setOptions(to(LogDestination.STDERR)).info("to stderr");
+        logger(formatter).setOptions(to(LogDestination.STDERR)).info("to stderr");
 
         assertEquals(formatter.only().rendered() + NL, stderrText());
         assertEquals("stdout should be untouched once stderr is selected", "", stdoutText());
@@ -308,7 +319,7 @@ public class LoggingTest {
     public void aFileDestinationDivertsAwayFromStdout() throws Exception {
         File sink = tempFolder.newFile();
         var formatter = new RecordingFormatter();
-        var log = Logging.getLogger(formatter);
+        var log = logger(formatter);
 
         log.setOptions(to(LogDestination.file(sink.getAbsolutePath()))).info("to a file");
         log.setOptions(to(LogDestination.STDOUT));
@@ -322,7 +333,7 @@ public class LoggingTest {
     public void reopeningAFileDestinationAppendsRatherThanTruncates() throws Exception {
         File sink = tempFolder.newFile();
         var formatter = new RecordingFormatter();
-        var log = Logging.getLogger(formatter);
+        var log = logger(formatter);
         var destination = to(LogDestination.file(sink.getAbsolutePath()));
 
         log.setOptions(destination).info("first");
@@ -338,7 +349,7 @@ public class LoggingTest {
     public void switchingAwayFromAFileStopsWritingToIt() throws Exception {
         File sink = tempFolder.newFile();
         var formatter = new RecordingFormatter();
-        var log = Logging.getLogger(formatter);
+        var log = logger(formatter);
 
         log.setOptions(to(LogDestination.file(sink.getAbsolutePath()))).info("to the file");
         log.setOptions(to(LogDestination.STDOUT)).info("to stdout");
@@ -352,7 +363,7 @@ public class LoggingTest {
     public void optionsWithoutADestinationLeaveThePrinterAlone() {
         var formatter = new RecordingFormatter();
 
-        Logging.getLogger(formatter)
+        logger(formatter)
                 .setOptions(LogOptions.initiateOptions())
                 .info("still on stdout");
 
@@ -363,7 +374,7 @@ public class LoggingTest {
     public void aFileDestinationSurvivesAnEmptyOptionsUpdate() throws Exception {
         File sink = tempFolder.newFile();
         var formatter = new RecordingFormatter();
-        var log = Logging.getLogger(formatter);
+        var log = logger(formatter);
 
         log.setOptions(to(LogDestination.file(sink.getAbsolutePath())));
         log.setOptions(LogOptions.initiateOptions()).info("still on the file");
@@ -380,9 +391,9 @@ public class LoggingTest {
         var toFile = new RecordingFormatter();
         var toStdout = new RecordingFormatter();
 
-        var fileLog = Logging.getLogger(toFile)
+        var fileLog = logger(toFile)
                 .setOptions(to(LogDestination.file(sink.getAbsolutePath())));
-        var stdoutLog = Logging.getLogger(toStdout);
+        var stdoutLog = logger(toStdout);
 
         fileLog.info("to the file");
         stdoutLog.info("to stdout");
@@ -399,7 +410,7 @@ public class LoggingTest {
 
     @Test
     public void setOptionsReturnsTheSameLoggerSoCallsCanChain() {
-        var log = Logging.getLogger(new RecordingFormatter());
+        var log = logger(new RecordingFormatter());
 
         assertSame(log, log.setOptions(LogOptions.initiateOptions()));
         assertSame(log, log.setOptions(to(LogDestination.STDERR)));
@@ -409,7 +420,7 @@ public class LoggingTest {
     public void anUnusableFileDestinationIsReportedAndThePrinterIsLeftAlone() throws Exception {
         File directory = tempFolder.newFolder();
         var formatter = new RecordingFormatter();
-        var log = Logging.getLogger(formatter);
+        var log = logger(formatter);
 
         log.setOptions(to(LogDestination.file(directory.getAbsolutePath())));
 
@@ -430,7 +441,7 @@ public class LoggingTest {
     public void aFailingFormatterIsReportedThroughTheErrorPath() {
         var formatter = new FailsOnceFormatter();
 
-        Logging.getLogger(formatter).info("never formatted");
+        logger(formatter).info("never formatted");
 
         assertEquals(1, formatter.calls.size());
         Call recovery = formatter.calls.get(0);
@@ -441,7 +452,7 @@ public class LoggingTest {
 
     @Test
     public void aFormatterThatAlwaysFailsFallsBackToAPlainNotice() {
-        Logging.getLogger(new AlwaysFailsFormatter()).info("never formatted");
+        logger(new AlwaysFailsFormatter()).info("never formatted");
 
         assertEquals(
                 RED + "Failed to format log message: formatter exploded" + RESET + NL,
@@ -450,7 +461,7 @@ public class LoggingTest {
 
     @Test
     public void aBrokenFormatterNeverStopsTheCaller() {
-        var log = Logging.getLogger(new AlwaysFailsFormatter());
+        var log = logger(new AlwaysFailsFormatter());
 
         log.info("first");
         log.error("second");
@@ -518,7 +529,7 @@ public class LoggingTest {
 
     @Test
     public void theDefaultFormatCarriesAMessageAllTheWayToTheDestination() {
-        Logging.getLogger(new Formatter(Formatable.DEFAULT_FORMAT)).warn("Careful");
+        logger(new Formatter(Formatable.DEFAULT_FORMAT)).warn("Careful");
 
         assertEquals(YELLOW + "Careful" + RESET + NL, stdoutText());
     }
@@ -538,20 +549,20 @@ public class LoggingTest {
 
     @Test
     public void theShippedFormatterWritesItsLineToTheDestination() {
-        Logging.getLogger(new Formatter("%s%s" + RESET)).info("Hello, World!");
+        logger(new Formatter("%s%s" + RESET)).info("Hello, World!");
 
         assertEquals(GREEN + "Hello, World!" + RESET + NL, stdoutText());
     }
 
     @Test
     public void theShippedFormatterEmitsOneLinePerCall() {
-        var log = Logging.getLogger(new Formatter("%s%s" + RESET));
+        var log = logger(new Formatter("%s%s" + RESET));
 
         log.info("first");
         log.warn("second");
-        log.debug("dropped");
+        log.debug("third");
 
-        assertEquals(2, stdoutText().lines().count());
+        assertEquals(3, stdoutText().lines().count());
     }
 
     @Test

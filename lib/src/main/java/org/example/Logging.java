@@ -10,13 +10,13 @@ public class Logging implements Loggable {
 
     private Formatable formatter;
 
-    private final LogLevel currentLogLevel = LogLevel.INFO;
     private PrintStream printer = System.out;
     private boolean ownsPrinter = false;
 
-    public static Loggable getLogger(Formatable formatter) {
+    public static Loggable getLogger(Formatable formatter, LogOptions options) {
         var logger = new Logging();
         logger.formatter = formatter;
+        logger.setOptions(options);
         return logger;
     }
 
@@ -46,9 +46,6 @@ public class Logging implements Loggable {
     }
 
     private synchronized void log(String message, LogLevel level) {
-        if (level.severity() < this.currentLogLevel.severity()) {
-            return;
-        }
         try {
             var formattedMessage = this.formatter.getFormattedString(level, message);
             this.printer.println(formattedMessage);
