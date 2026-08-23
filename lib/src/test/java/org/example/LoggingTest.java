@@ -192,12 +192,12 @@ public class LoggingTest {
     }
 
     @Test
-    public void theLoggerPassesNoExtraFormatArguments() {
+    public void theLoggerPassesTheCallingThreadsNameAsItsOnlyExtraArgument() {
         var formatter = new RecordingFormatter();
 
         logger(formatter).info("plain");
 
-        assertEquals(List.of(), formatter.only().args());
+        assertEquals(List.of(Thread.currentThread().getName()), formatter.only().args());
     }
 
     // ---------------------------------------------------------------------
