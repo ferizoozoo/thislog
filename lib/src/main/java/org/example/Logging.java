@@ -47,7 +47,8 @@ public class Logging implements Loggable {
 
     private synchronized void log(String message, LogLevel level) {
         try {
-            var formattedMessage = this.formatter.getFormattedString(level, message);
+            var threadName = Thread.currentThread().getName();
+            var formattedMessage = this.formatter.getFormattedString(level, message, threadName);
             this.printer.println(formattedMessage);
         } catch (Exception e) {
             reportFormattingFailure(e);
@@ -56,7 +57,8 @@ public class Logging implements Loggable {
 
     private void reportFormattingFailure(Exception failure) {
         try {
-            var formattedError = this.formatter.getFormattedString(LogLevel.ERROR, failure.getMessage());
+            var threadName = Thread.currentThread().getName();
+            var formattedError = this.formatter.getFormattedString(LogLevel.ERROR, failure.getMessage(), threadName);
             this.printer.println(formattedError);
         } catch (Exception alsoFailed) {
             this.printer.println(LogLevel.color(LogLevel.ERROR)
