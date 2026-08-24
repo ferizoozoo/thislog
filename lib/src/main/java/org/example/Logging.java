@@ -9,6 +9,7 @@ import java.io.PrintStream;
 public class Logging implements Loggable {
 
     private Formatable formatter;
+    private Context context;
 
     private PrintStream printer = System.out;
     private boolean ownsPrinter = false;
@@ -17,9 +18,17 @@ public class Logging implements Loggable {
         var logger = new Logging();
         logger.formatter = formatter;
         logger.setOptions(options);
+        logger.context = new Context();
+        logger.context.put("threadName", Thread.currentThread().getName());
         return logger;
     }
 
+    public Loggable setContext(String key, Object value) {
+        this.context.put(key, value);
+        return this;
+    }
+
+    @Override
     public synchronized Loggable setOptions(LogOptions options) {
         var newFormatter = options.getFormatter();
         if (newFormatter != null) {
@@ -53,11 +62,16 @@ public class Logging implements Loggable {
 
     private synchronized void log(String message, LogLevel level) {
         try {
-            var threadName = Thread.currentThread().getName();
+            // The thread name travels as an argument, not baked into the
+            // message: the format string decides whether and where to show it.
+            var threadName = this.context.get("threadName");
             var formattedMessage = this.formatter.getFormattedString(level, message, threadName);
             this.printer.println(formattedMessage);
         } catch (Exception e) {
             reportFormattingFailure(e);
+        } finally {
+            this.printer.flush();
+            this.context.clear();
         }
     }
 
