@@ -14,6 +14,7 @@ import java.util.List;
 
 import org.junit.After;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
@@ -131,6 +132,10 @@ public class LoggingTest {
     /** Logging only publishes the two-argument factory, so tests go through this. */
     private static Loggable logger(Formatable formatter) {
         return Logging.getLogger(formatter, LogOptions.initiateOptions());
+    }
+
+    private static LogOptions with(Formatable formatter) {
+        return LogOptions.initiateOptions().setFormatter(formatter);
     }
 
     // ---------------------------------------------------------------------
@@ -431,6 +436,296 @@ public class LoggingTest {
         log.info("still on stdout");
         assertTrue("logging should carry on where it was",
                 stdoutText().endsWith(formatter.only().rendered() + NL));
+    }
+
+    // ---------------------------------------------------------------------
+    // Runtime reconfiguration.
+    //
+    // setOptions is the only knob a running logger exposes, and it can be
+    // turned at any point in a logger's life. What follows pins down what a
+    // reconfiguration does to the messages around it: the ones already
+    // written, the ones still to come, the stream being left behind, and any
+    // other logger that happens to share it.
+    // ---------------------------------------------------------------------
+
+    @Test
+    public void eachMessageGoesWhereverTheLoggerPointedWhenItWasCalled() throws Exception {
+        File sink = tempFolder.newFile();
+        var formatter = new RecordingFormatter();
+        var log = logger(formatter);
+
+        log.info("before the move");
+        log.setOptions(to(LogDestination.file(sink.getAbsolutePath()))).info("while on the file");
+        log.setOptions(to(LogDestination.STDERR)).info("while on stderr");
+        log.setOptions(to(LogDestination.STDOUT)).info("back on stdout");
+
+        assertEquals("reconfiguring is not retroactive",
+                formatter.calls.get(0).rendered() + NL + formatter.calls.get(3).rendered() + NL,
+                stdoutText());
+        assertEquals(formatter.calls.get(1).rendered() + NL,
+                Files.readString(sink.toPath(), StandardCharsets.UTF_8));
+        assertEquals(formatter.calls.get(2).rendered() + NL, stderrText());
+    }
+
+    @Test
+    public void movingFromOneFileToAnotherLeavesTheFirstCompleteAndUntouched() throws Exception {
+        File first = tempFolder.newFile();
+        File second = tempFolder.newFile();
+        var formatter = new RecordingFormatter();
+        var log = logger(formatter);
+
+        log.setOptions(to(LogDestination.file(first.getAbsolutePath()))).info("into the first");
+        log.setOptions(to(LogDestination.file(second.getAbsolutePath()))).info("into the second");
+        log.setOptions(to(LogDestination.STDOUT));
+
+        assertEquals(formatter.calls.get(0).rendered() + NL,
+                Files.readString(first.toPath(), StandardCharsets.UTF_8));
+        assertEquals(formatter.calls.get(1).rendered() + NL,
+                Files.readString(second.toPath(), StandardCharsets.UTF_8));
+    }
+
+    @Test
+    public void comingBackToAFileAppendsToWhatIsAlreadyThere() throws Exception {
+        File sink = tempFolder.newFile();
+        var formatter = new RecordingFormatter();
+        var log = logger(formatter);
+        var toSink = to(LogDestination.file(sink.getAbsolutePath()));
+
+        log.setOptions(toSink).info("first visit");
+        log.setOptions(to(LogDestination.STDOUT)).info("away for a moment");
+        log.setOptions(toSink).info("second visit");
+        log.setOptions(to(LogDestination.STDOUT));
+
+        assertEquals("returning to a file must not truncate it",
+                formatter.calls.get(0).rendered() + NL + formatter.calls.get(2).rendered() + NL,
+                Files.readString(sink.toPath(), StandardCharsets.UTF_8));
+        assertEquals(formatter.calls.get(1).rendered() + NL, stdoutText());
+    }
+
+    @Test
+    public void aReconfigurationThatFailsReportsToTheDestinationStillInUse() throws Exception {
+        File sink = tempFolder.newFile();
+        File directory = tempFolder.newFolder();
+        var formatter = new RecordingFormatter();
+        var log = logger(formatter);
+
+        log.setOptions(to(LogDestination.file(sink.getAbsolutePath())));
+        log.setOptions(to(LogDestination.file(directory.getAbsolutePath())));
+        log.info("still on the file");
+        log.setOptions(to(LogDestination.STDOUT));
+
+        String written = Files.readString(sink.toPath(), StandardCharsets.UTF_8);
+        assertTrue("the notice belongs wherever the logger is currently writing, got: " + written,
+                written.startsWith("Failed to set log destination:"));
+        assertTrue("the working destination should survive a failed move",
+                written.endsWith(formatter.only().rendered() + NL));
+        assertEquals("a failed move must not fall back to stdout", "", stdoutText());
+    }
+
+    @Test
+    public void reselectingTheSameDestinationChangesNothing() {
+        var formatter = new RecordingFormatter();
+        var log = logger(formatter);
+
+        log.setOptions(to(LogDestination.STDOUT));
+        log.setOptions(to(LogDestination.STDOUT));
+        log.setOptions(to(LogDestination.STDOUT)).info("once only");
+
+        assertEquals(formatter.only().rendered() + NL, stdoutText());
+    }
+
+    @Test
+    public void movingBetweenTheSharedStreamsNeverClosesThem() {
+        var formatter = new RecordingFormatter();
+        var log = logger(formatter);
+
+        log.setOptions(to(LogDestination.STDERR));
+        log.setOptions(to(LogDestination.STDOUT));
+        log.setOptions(to(LogDestination.STDERR)).info("to stderr");
+        log.setOptions(to(LogDestination.STDOUT)).info("to stdout");
+
+        assertFalse("System.out must not be closed on the way past", System.out.checkError());
+        assertFalse("System.err must not be closed on the way past", System.err.checkError());
+        assertEquals(formatter.calls.get(0).rendered() + NL, stderrText());
+        assertEquals(formatter.calls.get(1).rendered() + NL, stdoutText());
+    }
+
+    @Test
+    public void theOptionsAreReadOnceAndNotHeldOnTo() {
+        var formatter = new RecordingFormatter();
+        var options = to(LogDestination.STDERR);
+        var log = logger(formatter).setOptions(options);
+
+        options.setDestination(LogDestination.STDOUT);
+        log.info("still on stderr");
+
+        assertEquals("a later edit to the options object must not move the logger",
+                formatter.only().rendered() + NL, stderrText());
+        assertEquals("", stdoutText());
+    }
+
+    @Test
+    public void aLoggerBuiltOnAFileCanBeMovedOffItLater() throws Exception {
+        File sink = tempFolder.newFile();
+        var formatter = new RecordingFormatter();
+
+        var log = Logging.getLogger(formatter, to(LogDestination.file(sink.getAbsolutePath())));
+        log.info("into the file");
+        log.setOptions(to(LogDestination.STDOUT)).info("out to stdout");
+
+        assertEquals(formatter.calls.get(0).rendered() + NL,
+                Files.readString(sink.toPath(), StandardCharsets.UTF_8));
+        assertEquals(formatter.calls.get(1).rendered() + NL, stdoutText());
+    }
+
+    @Test
+    public void oneLoggerMovingOffAFileLeavesAnotherStillWritingToIt() throws Exception {
+        File sink = tempFolder.newFile();
+        var leaving = new RecordingFormatter();
+        var staying = new RecordingFormatter();
+        var toSink = to(LogDestination.file(sink.getAbsolutePath()));
+
+        var leaves = logger(leaving).setOptions(toSink);
+        var stays = logger(staying).setOptions(toSink);
+
+        leaves.info("from the one that leaves");
+        stays.info("from the one that stays");
+        leaves.setOptions(to(LogDestination.STDOUT));
+        stays.info("after the other one left");
+        stays.setOptions(to(LogDestination.STDOUT));
+
+        assertEquals(
+                leaving.only().rendered() + NL
+                        + staying.calls.get(0).rendered() + NL
+                        + staying.calls.get(1).rendered() + NL,
+                Files.readString(sink.toPath(), StandardCharsets.UTF_8));
+    }
+
+    // ---------------------------------------------------------------------
+    // Runtime configuration of the formatter.
+    //
+    // A formatter is handed over at construction, but setOptions can put a
+    // different one in its place while the logger is running. What follows
+    // pins down when the swap takes effect, what the newcomer is given, and
+    // what a swap leaves alone.
+    // ---------------------------------------------------------------------
+
+    @Test
+    public void aFormatterSetAtRuntimeReplacesTheOneTheLoggerWasBuiltWith() {
+        var original = new RecordingFormatter();
+        var replacement = new RecordingFormatter();
+        var log = logger(original);
+
+        log.info("through the original");
+        log.setOptions(with(replacement)).info("through the replacement");
+
+        assertEquals("through the original", original.only().message());
+        assertEquals("through the replacement", replacement.only().message());
+        assertEquals(original.only().rendered() + NL + replacement.only().rendered() + NL,
+                stdoutText());
+    }
+
+    @Test
+    public void theFormatterAndTheDestinationCanMoveInTheSameCall() throws Exception {
+        File sink = tempFolder.newFile();
+        var original = new RecordingFormatter();
+        var replacement = new RecordingFormatter();
+        var log = logger(original);
+
+        log.info("original, on stdout");
+        log.setOptions(with(replacement)
+                .setDestination(LogDestination.file(sink.getAbsolutePath())))
+                .info("replacement, on the file");
+        log.setOptions(to(LogDestination.STDOUT));
+
+        assertEquals(original.only().rendered() + NL, stdoutText());
+        assertEquals(replacement.only().rendered() + NL,
+                Files.readString(sink.toPath(), StandardCharsets.UTF_8));
+    }
+
+    @Test
+    public void optionsWithoutAFormatterLeaveTheOneInPlace() {
+        var formatter = new RecordingFormatter();
+
+        logger(formatter).setOptions(to(LogDestination.STDERR)).info("same formatter as before");
+
+        assertEquals(formatter.only().rendered() + NL, stderrText());
+    }
+
+    @Test
+    public void swappingFormattersChangesTheShapeOfTheLinesThatFollow() {
+        var log = logger(new Formatter("[%2$s]"));
+
+        log.info("first");
+        log.setOptions(with(new Formatter("<%2$s>"))).info("second");
+
+        assertEquals("the swap must not reach back over what was already written",
+                "[first]" + NL + "<second>" + NL, stdoutText());
+    }
+
+    @Test
+    public void aFormatterSetAtRuntimeIsGivenTheLevelMessageAndThreadName() {
+        var replacement = new RecordingFormatter();
+
+        logger(new RecordingFormatter()).setOptions(with(replacement)).warn("Careful");
+
+        assertEquals(LogLevel.WARN, replacement.only().level());
+        assertEquals("Careful", replacement.only().message());
+        assertEquals(List.of(Thread.currentThread().getName()), replacement.only().args());
+    }
+
+    @Test
+    public void swappingInAWorkingFormatterRecoversALoggerThatCouldNotFormat() {
+        var replacement = new RecordingFormatter();
+        var log = logger(new AlwaysFailsFormatter());
+
+        log.info("never formatted");
+        log.setOptions(with(replacement)).info("formatted at last");
+
+        assertEquals(
+                RED + "Failed to format log message: formatter exploded" + RESET + NL
+                        + replacement.only().rendered() + NL,
+                stdoutText());
+    }
+
+    @Test
+    public void swappingInABrokenFormatterIsStillNotFatal() {
+        var log = logger(new RecordingFormatter());
+
+        log.setOptions(with(new AlwaysFailsFormatter()));
+        log.info("first");
+        log.error("second");
+
+        assertEquals("the caller should keep running either way", 2, stdoutText().lines().count());
+    }
+
+    @Test
+    public void theFormatterIsReadOnceAndNotHeldOnTo() {
+        var replacement = new RecordingFormatter();
+        var neverApplied = new RecordingFormatter();
+        var options = with(replacement);
+        var log = logger(new RecordingFormatter()).setOptions(options);
+
+        options.setFormatter(neverApplied);
+        log.info("through the replacement");
+
+        assertEquals("a later edit to the options object must not reach the logger",
+                "through the replacement", replacement.only().message());
+        assertEquals(List.of(), neverApplied.calls);
+    }
+
+    @Test
+    public void swappingOneLoggersFormatterLeavesAnotherLoggerOnTheOldOne() {
+        var shared = new RecordingFormatter();
+        var replacement = new RecordingFormatter();
+        var swapped = logger(shared);
+        var untouched = logger(shared);
+
+        swapped.setOptions(with(replacement)).info("through the replacement");
+        untouched.info("still through the shared one");
+
+        assertEquals("through the replacement", replacement.only().message());
+        assertEquals("still through the shared one", shared.only().message());
     }
 
     // ---------------------------------------------------------------------

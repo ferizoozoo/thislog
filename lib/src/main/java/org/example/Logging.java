@@ -20,7 +20,12 @@ public class Logging implements Loggable {
         return logger;
     }
 
-    public Loggable setOptions(LogOptions options) {
+    public synchronized Loggable setOptions(LogOptions options) {
+        var newFormatter = options.getFormatter();
+        if (newFormatter != null) {
+            this.formatter = newFormatter;
+        }
+
         var destination = options.getDestination();
         if (destination == null) {
             return this;
@@ -42,6 +47,7 @@ public class Logging implements Loggable {
         } catch (Exception e) {
             this.printer.println("Failed to set log destination: " + e.getMessage());
         }
+
         return this;
     }
 
