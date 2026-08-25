@@ -5,8 +5,11 @@ package org.example;
 
 import java.io.FileOutputStream;
 import java.io.PrintStream;
+import java.nio.charset.StandardCharsets;
 
 public class Logging implements Loggable {
+
+    private static final String LINE_SEPARATOR = System.lineSeparator();
 
     private Formatable formatter;
     private Context context;
@@ -62,11 +65,9 @@ public class Logging implements Loggable {
 
     private synchronized void log(String message, LogLevel level) {
         try {
-            // The thread name travels as an argument, not baked into the
-            // message: the format string decides whether and where to show it.
             var threadName = this.context.get("threadName");
             var formattedMessage = this.formatter.getFormattedString(level, message, threadName);
-            this.printer.println(formattedMessage);
+            this.printer.write((formattedMessage + LINE_SEPARATOR).getBytes(StandardCharsets.UTF_8));
         } catch (Exception e) {
             reportFormattingFailure(e);
         } finally {
