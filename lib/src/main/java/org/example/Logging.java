@@ -10,7 +10,9 @@ import java.nio.charset.StandardCharsets;
 public class Logging implements Loggable {
 
     private static final String LINE_SEPARATOR = System.lineSeparator();
+    private static final String THREAD_NAME_KEY = "threadName";
 
+    private LogLevel currentLevel = LogLevel.TRACE;
     private Formatable formatter;
     private Context context;
 
@@ -26,6 +28,13 @@ public class Logging implements Loggable {
         return logger;
     }
 
+    @Override
+    public Loggable setCurrentLevel(LogLevel level) {
+        this.currentLevel = level;
+        return this;
+    }
+
+    @Override
     public Loggable setContext(String key, Object value) {
         this.context.put(key, value);
         return this;
@@ -65,7 +74,11 @@ public class Logging implements Loggable {
 
     private synchronized void log(String message, LogLevel level) {
         try {
-            var threadName = this.context.get("threadName");
+            boolean silenceable = level == LogLevel.DEBUG || level == LogLevel.TRACE;
+            if (silenceable && level.severity() < this.currentLevel.severity()) {
+                return;
+            }
+            var threadName = this.context.get(THREAD_NAME_KEY);
             var formattedMessage = this.formatter.getFormattedString(level, message, threadName);
             this.printer.write((formattedMessage + LINE_SEPARATOR).getBytes(StandardCharsets.UTF_8));
         } catch (Exception e) {

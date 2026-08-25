@@ -2,6 +2,8 @@ package org.example;
 
 public interface Loggable {
     Loggable setOptions(LogOptions options);
+    Loggable setContext(String key, Object value);
+    Loggable setCurrentLevel(LogLevel level);
 
     void info(String message);
     void warn(String message);
