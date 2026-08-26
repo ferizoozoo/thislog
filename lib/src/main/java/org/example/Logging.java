@@ -99,6 +99,7 @@ public class Logging implements Loggable {
     }
 
     // TODO: These methods should be refactored to avoid code duplication. Consider using a single method that takes the log level as a parameter.
+    @Override
     public synchronized void debug(LogEvent logEvent) {
         if (logEvent.getLevel() != LogLevel.DEBUG) {
             return;
@@ -106,6 +107,7 @@ public class Logging implements Loggable {
         log(logEvent);
     }
 
+    @Override
     public synchronized void info(LogEvent logEvent) {
         if (logEvent.getLevel() != LogLevel.INFO) {
             return;
@@ -113,6 +115,7 @@ public class Logging implements Loggable {
         log(logEvent);
     }
 
+    @Override
     public synchronized void warn(LogEvent logEvent) {
         if (logEvent.getLevel() != LogLevel.WARN) {
             return;
@@ -120,6 +123,7 @@ public class Logging implements Loggable {
         log(logEvent);
     }
 
+    @Override
     public synchronized void error(LogEvent logEvent) {
         if (logEvent.getLevel() != LogLevel.ERROR) {
             return;
@@ -127,6 +131,7 @@ public class Logging implements Loggable {
         log(logEvent);
     }
 
+    @Override
     public synchronized void trace(LogEvent logEvent) {
         if (logEvent.getLevel() != LogLevel.TRACE) {
             return;
@@ -134,6 +139,7 @@ public class Logging implements Loggable {
         log(logEvent);
     }
 
+    @Override
     public synchronized void fatal(LogEvent logEvent) {
         if (logEvent.getLevel() != LogLevel.FATAL) {
             return;
