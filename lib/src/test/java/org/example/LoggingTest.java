@@ -34,19 +34,33 @@ public class LoggingTest {
 
     private static final String NL = System.lineSeparator();
 
+    private static final long AT = 1_700_000_000_000L;
+
+    /** An event on the calling thread, which is what most of these tests want. */
+    private static LogEvent event(LogLevel level, String message) {
+        return new LogEvent(message, AT, level, Thread.currentThread().getName());
+    }
+
     @Rule
     public TemporaryFolder tempFolder = new TemporaryFolder();
 
     // ---------------------------------------------------------------------
     // Test doubles.
     //
-    // Logging hands the level and the message to the formatter and prints
-    // whatever string comes back, so recording the arguments here is what
-    // makes the level and the message assertable, and the returned string is
-    // what should turn up at the destination.
+    // Logging hands the event and its thread name to the formatter and prints
+    // whatever string comes back, so unpacking the event here is what makes
+    // the level and the message assertable, and the returned string is what
+    // should turn up at the destination.
     // ---------------------------------------------------------------------
 
-    private record Call(LogLevel level, String message, List<Object> args) {
+    private record Call(LogLevel level, String message, long timestamp,
+            String threadName, List<Object> args) {
+
+        static Call of(LogEvent event, Object... args) {
+            return new Call(event.getLevel(), event.getMessage(), event.getTimestamp(),
+                    event.getThreadName(), Arrays.asList(args));
+        }
+
         String rendered() {
             return LogLevel.color(level) + "[" + level + "] " + message + RESET;
         }
@@ -56,8 +70,8 @@ public class LoggingTest {
         private final List<Call> calls = new ArrayList<>();
 
         @Override
-        public String getFormattedString(LogLevel level, String message, Object... args) {
-            var call = new Call(level, message, Arrays.asList(args));
+        public String getFormattedString(LogEvent event, Object... args) {
+            var call = Call.of(event, args);
             calls.add(call);
             return call.rendered();
         }
@@ -74,12 +88,12 @@ public class LoggingTest {
         private boolean armed = true;
 
         @Override
-        public String getFormattedString(LogLevel level, String message, Object... args) {
+        public String getFormattedString(LogEvent event, Object... args) {
             if (armed) {
                 armed = false;
                 throw new IllegalStateException("formatter exploded");
             }
-            var call = new Call(level, message, Arrays.asList(args));
+            var call = Call.of(event, args);
             calls.add(call);
             return call.rendered();
         }
@@ -87,7 +101,7 @@ public class LoggingTest {
 
     private static final class AlwaysFailsFormatter implements Formatable {
         @Override
-        public String getFormattedString(LogLevel level, String message, Object... args) {
+        public String getFormattedString(LogEvent event, Object... args) {
             throw new IllegalStateException("formatter exploded");
         }
     }
@@ -139,44 +153,44 @@ public class LoggingTest {
     }
 
     // ---------------------------------------------------------------------
-    // What each level hands to the formatter.
+    // What reaches the formatter.
     // ---------------------------------------------------------------------
 
     @Test
-    public void infoIsFormattedAtInfoAndCarriesTheMessage() {
+    public void theFormatterIsGivenTheLevelTheEventCarries() {
         var formatter = new RecordingFormatter();
 
-        logger(formatter).info("Hello, World!");
+        logger(formatter).info(event(LogLevel.INFO, "Hello, World!"));
 
         assertEquals(LogLevel.INFO, formatter.only().level());
         assertEquals("Hello, World!", formatter.only().message());
     }
 
     @Test
-    public void warnIsFormattedAtWarn() {
+    public void aWarnEventIsFormattedAtWarn() {
         var formatter = new RecordingFormatter();
 
-        logger(formatter).warn("Careful");
+        logger(formatter).warn(event(LogLevel.WARN, "Careful"));
 
         assertEquals(LogLevel.WARN, formatter.only().level());
         assertEquals("Careful", formatter.only().message());
     }
 
     @Test
-    public void errorIsFormattedAtError() {
+    public void anErrorEventIsFormattedAtError() {
         var formatter = new RecordingFormatter();
 
-        logger(formatter).error("Boom");
+        logger(formatter).error(event(LogLevel.ERROR, "Boom"));
 
         assertEquals(LogLevel.ERROR, formatter.only().level());
         assertEquals("Boom", formatter.only().message());
     }
 
     @Test
-    public void fatalIsFormattedAtFatal() {
+    public void aFatalEventIsFormattedAtFatal() {
         var formatter = new RecordingFormatter();
 
-        logger(formatter).fatal("Unrecoverable");
+        logger(formatter).fatal(event(LogLevel.FATAL, "Unrecoverable"));
 
         assertEquals(LogLevel.FATAL, formatter.only().level());
         assertEquals("Unrecoverable", formatter.only().message());
@@ -187,9 +201,9 @@ public class LoggingTest {
         var formatter = new RecordingFormatter();
         var log = logger(formatter);
 
-        log.info("green");
-        log.warn("yellow");
-        log.error("red");
+        log.info(event(LogLevel.INFO, "green"));
+        log.warn(event(LogLevel.WARN, "yellow"));
+        log.error(event(LogLevel.ERROR, "red"));
 
         assertEquals(GREEN, LogLevel.color(formatter.calls.get(0).level()));
         assertEquals(YELLOW, LogLevel.color(formatter.calls.get(1).level()));
@@ -197,12 +211,74 @@ public class LoggingTest {
     }
 
     @Test
-    public void theLoggerPassesTheCallingThreadsNameAsItsOnlyExtraArgument() {
+    public void theEventsThreadNameIsPassedAsTheOnlyExtraArgument() {
         var formatter = new RecordingFormatter();
 
-        logger(formatter).info("plain");
+        logger(formatter).info(new LogEvent("plain", AT, LogLevel.INFO, "worker-1"));
 
-        assertEquals(List.of(Thread.currentThread().getName()), formatter.only().args());
+        assertEquals("the extra argument is the event's thread name, not the logging thread's",
+                List.of("worker-1"), formatter.only().args());
+    }
+
+    @Test
+    public void theTimestampReachesTheFormatterUntouched() {
+        var formatter = new RecordingFormatter();
+
+        logger(formatter).info(new LogEvent("stamped", 4711L, LogLevel.INFO, "main"));
+
+        assertEquals(4711L, formatter.only().timestamp());
+    }
+
+    // ---------------------------------------------------------------------
+    // The level comes off the event, not off the method that was called.
+    //
+    // Every level method funnels into the same one-argument log(LogEvent), so
+    // the method name selects nothing: an event decides its own level, its own
+    // colour and its own fate at the threshold. That makes the six methods
+    // interchangeable, which is worth stating outright rather than leaving for
+    // someone to discover.
+    // ---------------------------------------------------------------------
+
+    @Test
+    public void theEventsLevelWinsOverTheMethodThatWasCalled() {
+        var formatter = new RecordingFormatter();
+
+        logger(formatter).info(event(LogLevel.ERROR, "logged through info()"));
+
+        assertEquals("info() logged an ERROR event, so the line is an ERROR line",
+                LogLevel.ERROR, formatter.only().level());
+    }
+
+    @Test
+    public void everyLevelMethodTreatsTheSameEventIdentically() {
+        var formatter = new RecordingFormatter();
+        var log = logger(formatter);
+        var fatal = event(LogLevel.FATAL, "the same event six times");
+
+        log.trace(fatal);
+        log.debug(fatal);
+        log.info(fatal);
+        log.warn(fatal);
+        log.error(fatal);
+        log.fatal(fatal);
+
+        assertEquals("the method name selects nothing once the event carries the level",
+                List.of(LogLevel.FATAL, LogLevel.FATAL, LogLevel.FATAL,
+                        LogLevel.FATAL, LogLevel.FATAL, LogLevel.FATAL),
+                formatter.calls.stream().map(Call::level).toList());
+        assertEquals(6, stdoutText().lines().count());
+    }
+
+    @Test
+    public void aVerboseMethodDoesNotSoftenASevereEvent() {
+        var formatter = new RecordingFormatter();
+        var log = logger(formatter);
+
+        log.setCurrentLevel(LogLevel.FATAL);
+        log.trace(event(LogLevel.FATAL, "trace() cannot demote a FATAL event"));
+
+        assertEquals(LogLevel.FATAL, formatter.only().level());
+        assertEquals(formatter.only().rendered() + NL, stdoutText());
     }
 
     // ---------------------------------------------------------------------
@@ -213,22 +289,22 @@ public class LoggingTest {
     public void theFormattedStringIsWhatReachesTheDestination() {
         var formatter = new RecordingFormatter();
 
-        logger(formatter).info("on the wire");
+        logger(formatter).info(event(LogLevel.INFO, "on the wire"));
 
         assertEquals(formatter.only().rendered() + NL, stdoutText());
     }
 
     // ---------------------------------------------------------------------
-    // Levels. The logger carries no threshold of its own: every level is
-    // handed to the formatter and written, and severity is left for a
-    // caller to compare.
+    // Levels. Nothing is filtered at the default threshold, so an event of
+    // any level is formatted and written; LevelFilteringTest owns the
+    // threshold itself.
     // ---------------------------------------------------------------------
 
     @Test
-    public void debugIsFormattedAtDebugAndIsWritten() {
+    public void aDebugEventIsFormattedAndWritten() {
         var formatter = new RecordingFormatter();
 
-        logger(formatter).debug("chatter");
+        logger(formatter).debug(event(LogLevel.DEBUG, "chatter"));
 
         assertEquals(LogLevel.DEBUG, formatter.only().level());
         assertEquals("chatter", formatter.only().message());
@@ -236,10 +312,10 @@ public class LoggingTest {
     }
 
     @Test
-    public void traceIsFormattedAtTraceAndIsWritten() {
+    public void aTraceEventIsFormattedAndWritten() {
         var formatter = new RecordingFormatter();
 
-        logger(formatter).trace("Tracing");
+        logger(formatter).trace(event(LogLevel.TRACE, "Tracing"));
 
         assertEquals(LogLevel.TRACE, formatter.only().level());
         assertEquals("Tracing", formatter.only().message());
@@ -251,12 +327,12 @@ public class LoggingTest {
         var formatter = new RecordingFormatter();
         var log = logger(formatter);
 
-        log.trace("kept");
-        log.debug("kept");
-        log.info("kept");
-        log.warn("kept");
-        log.error("kept");
-        log.fatal("kept");
+        log.trace(event(LogLevel.TRACE, "kept"));
+        log.debug(event(LogLevel.DEBUG, "kept"));
+        log.info(event(LogLevel.INFO, "kept"));
+        log.warn(event(LogLevel.WARN, "kept"));
+        log.error(event(LogLevel.ERROR, "kept"));
+        log.fatal(event(LogLevel.FATAL, "kept"));
 
         assertEquals(
                 List.of(LogLevel.TRACE, LogLevel.DEBUG, LogLevel.INFO,
@@ -270,8 +346,8 @@ public class LoggingTest {
         var formatter = new RecordingFormatter();
         var log = logger(formatter);
 
-        log.info("first");
-        log.error("second");
+        log.info(event(LogLevel.INFO, "first"));
+        log.error(event(LogLevel.ERROR, "second"));
 
         assertEquals(2, formatter.calls.size());
         assertEquals("first", formatter.calls.get(0).message());
@@ -289,7 +365,7 @@ public class LoggingTest {
     public void logsGoToStdoutWhenNoDestinationIsConfigured() {
         var formatter = new RecordingFormatter();
 
-        logger(formatter).info("to stdout");
+        logger(formatter).info(event(LogLevel.INFO, "to stdout"));
 
         assertEquals(formatter.only().rendered() + NL, stdoutText());
         assertEquals("", stderrText());
@@ -302,7 +378,7 @@ public class LoggingTest {
 
         var replacement = new ByteArrayOutputStream();
         System.setOut(new PrintStream(replacement, true, StandardCharsets.UTF_8));
-        log.setOptions(to(LogDestination.STDOUT)).info("to the new stdout");
+        log.setOptions(to(LogDestination.STDOUT)).info(event(LogLevel.INFO, "to the new stdout"));
 
         assertEquals("the stream captured at construction should be left alone",
                 "", stdoutText());
@@ -314,7 +390,8 @@ public class LoggingTest {
     public void theStderrDestinationDivertsAwayFromStdout() {
         var formatter = new RecordingFormatter();
 
-        logger(formatter).setOptions(to(LogDestination.STDERR)).info("to stderr");
+        logger(formatter).setOptions(to(LogDestination.STDERR))
+                .info(event(LogLevel.INFO, "to stderr"));
 
         assertEquals(formatter.only().rendered() + NL, stderrText());
         assertEquals("stdout should be untouched once stderr is selected", "", stdoutText());
@@ -326,7 +403,8 @@ public class LoggingTest {
         var formatter = new RecordingFormatter();
         var log = logger(formatter);
 
-        log.setOptions(to(LogDestination.file(sink.getAbsolutePath()))).info("to a file");
+        log.setOptions(to(LogDestination.file(sink.getAbsolutePath())))
+                .info(event(LogLevel.INFO, "to a file"));
         log.setOptions(to(LogDestination.STDOUT));
 
         assertEquals(formatter.only().rendered() + NL,
@@ -341,8 +419,8 @@ public class LoggingTest {
         var log = logger(formatter);
         var destination = to(LogDestination.file(sink.getAbsolutePath()));
 
-        log.setOptions(destination).info("first");
-        log.setOptions(destination).info("second");
+        log.setOptions(destination).info(event(LogLevel.INFO, "first"));
+        log.setOptions(destination).info(event(LogLevel.INFO, "second"));
         log.setOptions(to(LogDestination.STDOUT));
 
         assertEquals(
@@ -356,8 +434,9 @@ public class LoggingTest {
         var formatter = new RecordingFormatter();
         var log = logger(formatter);
 
-        log.setOptions(to(LogDestination.file(sink.getAbsolutePath()))).info("to the file");
-        log.setOptions(to(LogDestination.STDOUT)).info("to stdout");
+        log.setOptions(to(LogDestination.file(sink.getAbsolutePath())))
+                .info(event(LogLevel.INFO, "to the file"));
+        log.setOptions(to(LogDestination.STDOUT)).info(event(LogLevel.INFO, "to stdout"));
 
         assertEquals(formatter.calls.get(0).rendered() + NL,
                 Files.readString(sink.toPath(), StandardCharsets.UTF_8));
@@ -370,7 +449,7 @@ public class LoggingTest {
 
         logger(formatter)
                 .setOptions(LogOptions.initiateOptions())
-                .info("still on stdout");
+                .info(event(LogLevel.INFO, "still on stdout"));
 
         assertEquals(formatter.only().rendered() + NL, stdoutText());
     }
@@ -382,7 +461,7 @@ public class LoggingTest {
         var log = logger(formatter);
 
         log.setOptions(to(LogDestination.file(sink.getAbsolutePath())));
-        log.setOptions(LogOptions.initiateOptions()).info("still on the file");
+        log.setOptions(LogOptions.initiateOptions()).info(event(LogLevel.INFO, "still on the file"));
         log.setOptions(to(LogDestination.STDOUT));
 
         assertEquals(formatter.only().rendered() + NL,
@@ -400,8 +479,8 @@ public class LoggingTest {
                 .setOptions(to(LogDestination.file(sink.getAbsolutePath())));
         var stdoutLog = logger(toStdout);
 
-        fileLog.info("to the file");
-        stdoutLog.info("to stdout");
+        fileLog.info(event(LogLevel.INFO, "to the file"));
+        stdoutLog.info(event(LogLevel.INFO, "to stdout"));
         fileLog.setOptions(to(LogDestination.STDOUT));
 
         assertEquals(toFile.only().rendered() + NL,
@@ -422,6 +501,13 @@ public class LoggingTest {
     }
 
     @Test
+    public void setCurrentLevelReturnsTheSameLoggerSoCallsCanChain() {
+        var log = logger(new RecordingFormatter());
+
+        assertSame(log, log.setCurrentLevel(LogLevel.WARN));
+    }
+
+    @Test
     public void anUnusableFileDestinationIsReportedAndThePrinterIsLeftAlone() throws Exception {
         File directory = tempFolder.newFolder();
         var formatter = new RecordingFormatter();
@@ -433,7 +519,7 @@ public class LoggingTest {
         assertTrue("expected a failure notice, got: " + notice,
                 notice.startsWith("Failed to set log destination:"));
 
-        log.info("still on stdout");
+        log.info(event(LogLevel.INFO, "still on stdout"));
         assertTrue("logging should carry on where it was",
                 stdoutText().endsWith(formatter.only().rendered() + NL));
     }
@@ -454,10 +540,11 @@ public class LoggingTest {
         var formatter = new RecordingFormatter();
         var log = logger(formatter);
 
-        log.info("before the move");
-        log.setOptions(to(LogDestination.file(sink.getAbsolutePath()))).info("while on the file");
-        log.setOptions(to(LogDestination.STDERR)).info("while on stderr");
-        log.setOptions(to(LogDestination.STDOUT)).info("back on stdout");
+        log.info(event(LogLevel.INFO, "before the move"));
+        log.setOptions(to(LogDestination.file(sink.getAbsolutePath())))
+                .info(event(LogLevel.INFO, "while on the file"));
+        log.setOptions(to(LogDestination.STDERR)).info(event(LogLevel.INFO, "while on stderr"));
+        log.setOptions(to(LogDestination.STDOUT)).info(event(LogLevel.INFO, "back on stdout"));
 
         assertEquals("reconfiguring is not retroactive",
                 formatter.calls.get(0).rendered() + NL + formatter.calls.get(3).rendered() + NL,
@@ -474,8 +561,10 @@ public class LoggingTest {
         var formatter = new RecordingFormatter();
         var log = logger(formatter);
 
-        log.setOptions(to(LogDestination.file(first.getAbsolutePath()))).info("into the first");
-        log.setOptions(to(LogDestination.file(second.getAbsolutePath()))).info("into the second");
+        log.setOptions(to(LogDestination.file(first.getAbsolutePath())))
+                .info(event(LogLevel.INFO, "into the first"));
+        log.setOptions(to(LogDestination.file(second.getAbsolutePath())))
+                .info(event(LogLevel.INFO, "into the second"));
         log.setOptions(to(LogDestination.STDOUT));
 
         assertEquals(formatter.calls.get(0).rendered() + NL,
@@ -491,9 +580,9 @@ public class LoggingTest {
         var log = logger(formatter);
         var toSink = to(LogDestination.file(sink.getAbsolutePath()));
 
-        log.setOptions(toSink).info("first visit");
-        log.setOptions(to(LogDestination.STDOUT)).info("away for a moment");
-        log.setOptions(toSink).info("second visit");
+        log.setOptions(toSink).info(event(LogLevel.INFO, "first visit"));
+        log.setOptions(to(LogDestination.STDOUT)).info(event(LogLevel.INFO, "away for a moment"));
+        log.setOptions(toSink).info(event(LogLevel.INFO, "second visit"));
         log.setOptions(to(LogDestination.STDOUT));
 
         assertEquals("returning to a file must not truncate it",
@@ -511,7 +600,7 @@ public class LoggingTest {
 
         log.setOptions(to(LogDestination.file(sink.getAbsolutePath())));
         log.setOptions(to(LogDestination.file(directory.getAbsolutePath())));
-        log.info("still on the file");
+        log.info(event(LogLevel.INFO, "still on the file"));
         log.setOptions(to(LogDestination.STDOUT));
 
         String written = Files.readString(sink.toPath(), StandardCharsets.UTF_8);
@@ -529,7 +618,7 @@ public class LoggingTest {
 
         log.setOptions(to(LogDestination.STDOUT));
         log.setOptions(to(LogDestination.STDOUT));
-        log.setOptions(to(LogDestination.STDOUT)).info("once only");
+        log.setOptions(to(LogDestination.STDOUT)).info(event(LogLevel.INFO, "once only"));
 
         assertEquals(formatter.only().rendered() + NL, stdoutText());
     }
@@ -541,8 +630,8 @@ public class LoggingTest {
 
         log.setOptions(to(LogDestination.STDERR));
         log.setOptions(to(LogDestination.STDOUT));
-        log.setOptions(to(LogDestination.STDERR)).info("to stderr");
-        log.setOptions(to(LogDestination.STDOUT)).info("to stdout");
+        log.setOptions(to(LogDestination.STDERR)).info(event(LogLevel.INFO, "to stderr"));
+        log.setOptions(to(LogDestination.STDOUT)).info(event(LogLevel.INFO, "to stdout"));
 
         assertFalse("System.out must not be closed on the way past", System.out.checkError());
         assertFalse("System.err must not be closed on the way past", System.err.checkError());
@@ -557,7 +646,7 @@ public class LoggingTest {
         var log = logger(formatter).setOptions(options);
 
         options.setDestination(LogDestination.STDOUT);
-        log.info("still on stderr");
+        log.info(event(LogLevel.INFO, "still on stderr"));
 
         assertEquals("a later edit to the options object must not move the logger",
                 formatter.only().rendered() + NL, stderrText());
@@ -570,8 +659,8 @@ public class LoggingTest {
         var formatter = new RecordingFormatter();
 
         var log = Logging.getLogger(formatter, to(LogDestination.file(sink.getAbsolutePath())));
-        log.info("into the file");
-        log.setOptions(to(LogDestination.STDOUT)).info("out to stdout");
+        log.info(event(LogLevel.INFO, "into the file"));
+        log.setOptions(to(LogDestination.STDOUT)).info(event(LogLevel.INFO, "out to stdout"));
 
         assertEquals(formatter.calls.get(0).rendered() + NL,
                 Files.readString(sink.toPath(), StandardCharsets.UTF_8));
@@ -588,10 +677,10 @@ public class LoggingTest {
         var leaves = logger(leaving).setOptions(toSink);
         var stays = logger(staying).setOptions(toSink);
 
-        leaves.info("from the one that leaves");
-        stays.info("from the one that stays");
+        leaves.info(event(LogLevel.INFO, "from the one that leaves"));
+        stays.info(event(LogLevel.INFO, "from the one that stays"));
         leaves.setOptions(to(LogDestination.STDOUT));
-        stays.info("after the other one left");
+        stays.info(event(LogLevel.INFO, "after the other one left"));
         stays.setOptions(to(LogDestination.STDOUT));
 
         assertEquals(
@@ -616,8 +705,8 @@ public class LoggingTest {
         var replacement = new RecordingFormatter();
         var log = logger(original);
 
-        log.info("through the original");
-        log.setOptions(with(replacement)).info("through the replacement");
+        log.info(event(LogLevel.INFO, "through the original"));
+        log.setOptions(with(replacement)).info(event(LogLevel.INFO, "through the replacement"));
 
         assertEquals("through the original", original.only().message());
         assertEquals("through the replacement", replacement.only().message());
@@ -632,10 +721,10 @@ public class LoggingTest {
         var replacement = new RecordingFormatter();
         var log = logger(original);
 
-        log.info("original, on stdout");
+        log.info(event(LogLevel.INFO, "original, on stdout"));
         log.setOptions(with(replacement)
                 .setDestination(LogDestination.file(sink.getAbsolutePath())))
-                .info("replacement, on the file");
+                .info(event(LogLevel.INFO, "replacement, on the file"));
         log.setOptions(to(LogDestination.STDOUT));
 
         assertEquals(original.only().rendered() + NL, stdoutText());
@@ -647,7 +736,8 @@ public class LoggingTest {
     public void optionsWithoutAFormatterLeaveTheOneInPlace() {
         var formatter = new RecordingFormatter();
 
-        logger(formatter).setOptions(to(LogDestination.STDERR)).info("same formatter as before");
+        logger(formatter).setOptions(to(LogDestination.STDERR))
+                .info(event(LogLevel.INFO, "same formatter as before"));
 
         assertEquals(formatter.only().rendered() + NL, stderrText());
     }
@@ -656,22 +746,25 @@ public class LoggingTest {
     public void swappingFormattersChangesTheShapeOfTheLinesThatFollow() {
         var log = logger(new Formatter("[%2$s]"));
 
-        log.info("first");
-        log.setOptions(with(new Formatter("<%2$s>"))).info("second");
+        log.info(event(LogLevel.INFO, "first"));
+        log.setOptions(with(new Formatter("<%2$s>"))).info(event(LogLevel.INFO, "second"));
 
         assertEquals("the swap must not reach back over what was already written",
                 "[first]" + NL + "<second>" + NL, stdoutText());
     }
 
     @Test
-    public void aFormatterSetAtRuntimeIsGivenTheLevelMessageAndThreadName() {
+    public void aFormatterSetAtRuntimeIsGivenTheWholeEvent() {
         var replacement = new RecordingFormatter();
 
-        logger(new RecordingFormatter()).setOptions(with(replacement)).warn("Careful");
+        logger(new RecordingFormatter()).setOptions(with(replacement))
+                .warn(new LogEvent("Careful", AT, LogLevel.WARN, "worker-1"));
 
         assertEquals(LogLevel.WARN, replacement.only().level());
         assertEquals("Careful", replacement.only().message());
-        assertEquals(List.of(Thread.currentThread().getName()), replacement.only().args());
+        assertEquals(AT, replacement.only().timestamp());
+        assertEquals("worker-1", replacement.only().threadName());
+        assertEquals(List.of("worker-1"), replacement.only().args());
     }
 
     @Test
@@ -679,8 +772,8 @@ public class LoggingTest {
         var replacement = new RecordingFormatter();
         var log = logger(new AlwaysFailsFormatter());
 
-        log.info("never formatted");
-        log.setOptions(with(replacement)).info("formatted at last");
+        log.info(event(LogLevel.INFO, "never formatted"));
+        log.setOptions(with(replacement)).info(event(LogLevel.INFO, "formatted at last"));
 
         assertEquals(
                 RED + "Failed to format log message: formatter exploded" + RESET + NL
@@ -693,8 +786,8 @@ public class LoggingTest {
         var log = logger(new RecordingFormatter());
 
         log.setOptions(with(new AlwaysFailsFormatter()));
-        log.info("first");
-        log.error("second");
+        log.info(event(LogLevel.INFO, "first"));
+        log.error(event(LogLevel.ERROR, "second"));
 
         assertEquals("the caller should keep running either way", 2, stdoutText().lines().count());
     }
@@ -707,7 +800,7 @@ public class LoggingTest {
         var log = logger(new RecordingFormatter()).setOptions(options);
 
         options.setFormatter(neverApplied);
-        log.info("through the replacement");
+        log.info(event(LogLevel.INFO, "through the replacement"));
 
         assertEquals("a later edit to the options object must not reach the logger",
                 "through the replacement", replacement.only().message());
@@ -721,8 +814,8 @@ public class LoggingTest {
         var swapped = logger(shared);
         var untouched = logger(shared);
 
-        swapped.setOptions(with(replacement)).info("through the replacement");
-        untouched.info("still through the shared one");
+        swapped.setOptions(with(replacement)).info(event(LogLevel.INFO, "through the replacement"));
+        untouched.info(event(LogLevel.INFO, "still through the shared one"));
 
         assertEquals("through the replacement", replacement.only().message());
         assertEquals("still through the shared one", shared.only().message());
@@ -736,18 +829,19 @@ public class LoggingTest {
     public void aFailingFormatterIsReportedThroughTheErrorPath() {
         var formatter = new FailsOnceFormatter();
 
-        logger(formatter).info("never formatted");
+        logger(formatter).info(event(LogLevel.INFO, "never formatted"));
 
         assertEquals(1, formatter.calls.size());
         Call recovery = formatter.calls.get(0);
-        assertEquals(LogLevel.ERROR, recovery.level());
+        assertEquals("the recovery line is reported at ERROR whatever failed",
+                LogLevel.ERROR, recovery.level());
         assertEquals("formatter exploded", recovery.message());
         assertEquals(recovery.rendered() + NL, stdoutText());
     }
 
     @Test
     public void aFormatterThatAlwaysFailsFallsBackToAPlainNotice() {
-        logger(new AlwaysFailsFormatter()).info("never formatted");
+        logger(new AlwaysFailsFormatter()).info(event(LogLevel.INFO, "never formatted"));
 
         assertEquals(
                 RED + "Failed to format log message: formatter exploded" + RESET + NL,
@@ -758,10 +852,22 @@ public class LoggingTest {
     public void aBrokenFormatterNeverStopsTheCaller() {
         var log = logger(new AlwaysFailsFormatter());
 
-        log.info("first");
-        log.error("second");
+        log.info(event(LogLevel.INFO, "first"));
+        log.error(event(LogLevel.ERROR, "second"));
 
         assertEquals("the caller should keep running either way", 2, stdoutText().lines().count());
+    }
+
+    @Test
+    public void anEventWithNoLevelIsReportedRatherThanThrown() {
+        var formatter = new RecordingFormatter();
+
+        logger(formatter).info(new LogEvent("no level", AT, null, "main"));
+
+        // The threshold check dereferences the level, so this fails before the
+        // event is formatted and comes out through the recovery path instead.
+        assertEquals(LogLevel.ERROR, formatter.only().level());
+        assertEquals(1, stdoutText().lines().count());
     }
 
     // ---------------------------------------------------------------------
@@ -806,25 +912,35 @@ public class LoggingTest {
     @Test
     public void theShippedFormatterFillsInTheColourThenTheMessage() {
         assertEquals(YELLOW + "[Careful]",
-                new Formatter("%s[%s]").getFormattedString(LogLevel.WARN, "Careful"));
+                new Formatter("%s[%s]").getFormattedString(event(LogLevel.WARN, "Careful")));
     }
 
     @Test
     public void theShippedFormatterHonoursTheFormatItWasBuiltWith() {
         assertEquals("Careful" + YELLOW,
-                new Formatter("%2$s%1$s").getFormattedString(LogLevel.WARN, "Careful"));
+                new Formatter("%2$s%1$s").getFormattedString(event(LogLevel.WARN, "Careful")));
+    }
+
+    @Test
+    public void theShippedFormatterColoursByTheLevelTheEventCarries() {
+        var log = logger(new Formatter("%s%s" + RESET));
+
+        log.warn(event(LogLevel.WARN, "careful"));
+        log.error(event(LogLevel.ERROR, "boom"));
+
+        assertEquals(YELLOW + "careful" + RESET + NL + RED + "boom" + RESET + NL, stdoutText());
     }
 
     @Test
     public void theDefaultFormatColoursTheMessageAndClosesTheColour() {
         assertEquals(GREEN + "Hello, World!" + RESET,
                 new Formatter(Formatable.DEFAULT_FORMAT)
-                        .getFormattedString(LogLevel.INFO, "Hello, World!"));
+                        .getFormattedString(event(LogLevel.INFO, "Hello, World!")));
     }
 
     @Test
     public void theDefaultFormatCarriesAMessageAllTheWayToTheDestination() {
-        logger(new Formatter(Formatable.DEFAULT_FORMAT)).warn("Careful");
+        logger(new Formatter(Formatable.DEFAULT_FORMAT)).warn(event(LogLevel.WARN, "Careful"));
 
         assertEquals(YELLOW + "Careful" + RESET + NL, stdoutText());
     }
@@ -833,18 +949,18 @@ public class LoggingTest {
     public void extraArgumentsAreSpreadIntoTheFormatRatherThanPassedAsAnArray() {
         assertEquals(GREEN + "disk full: 91% of 500GB",
                 new Formatter("%s%s: %s%% of %sGB")
-                        .getFormattedString(LogLevel.INFO, "disk full", 91, 500));
+                        .getFormattedString(event(LogLevel.INFO, "disk full"), 91, 500));
     }
 
     @Test
     public void surplusArgumentsAreIgnoredByTheFormat() {
         assertEquals(GREEN + "terse",
-                new Formatter("%s%s").getFormattedString(LogLevel.INFO, "terse", "unused"));
+                new Formatter("%s%s").getFormattedString(event(LogLevel.INFO, "terse"), "unused"));
     }
 
     @Test
     public void theShippedFormatterWritesItsLineToTheDestination() {
-        logger(new Formatter("%s%s" + RESET)).info("Hello, World!");
+        logger(new Formatter("%s%s" + RESET)).info(event(LogLevel.INFO, "Hello, World!"));
 
         assertEquals(GREEN + "Hello, World!" + RESET + NL, stdoutText());
     }
@@ -853,11 +969,22 @@ public class LoggingTest {
     public void theShippedFormatterEmitsOneLinePerCall() {
         var log = logger(new Formatter("%s%s" + RESET));
 
-        log.info("first");
-        log.warn("second");
-        log.debug("third");
+        log.info(event(LogLevel.INFO, "first"));
+        log.warn(event(LogLevel.WARN, "second"));
+        log.debug(event(LogLevel.DEBUG, "third"));
 
         assertEquals(3, stdoutText().lines().count());
+    }
+
+    @Test
+    public void theShippedFormatterLeavesTheTimestampAndThreadNameToTheCaller() {
+        // The shipped Formatter spends only the colour and the message; the
+        // event still carries the timestamp and the thread name, so a
+        // Formatable that wants them can reach for them itself.
+        logger(new Formatter("%s%s" + RESET))
+                .info(new LogEvent("terse", AT, LogLevel.INFO, "worker-1"));
+
+        assertEquals(GREEN + "terse" + RESET + NL, stdoutText());
     }
 
     // ---------------------------------------------------------------------

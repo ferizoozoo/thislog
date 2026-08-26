@@ -66,14 +66,14 @@ public class Logging implements Loggable {
         return this;
     }
 
-    private synchronized void log(String message, LogLevel level) {
+    private synchronized void log(LogEvent logEvent) {
         try {
-            if (level.severity() < this.currentLevel.severity()) {
+            if (logEvent.getLevel().severity() < this.currentLevel.severity()) {
                 return;
             }
-            this.context.put(THREAD_NAME_KEY, Thread.currentThread().getName());
+            this.context.put(THREAD_NAME_KEY, logEvent.getThreadName());
             var threadName = this.context.get(THREAD_NAME_KEY);
-            var formattedMessage = this.formatter.getFormattedString(level, message, threadName);
+            var formattedMessage = this.formatter.getFormattedString(logEvent, threadName);
             this.printer.write((formattedMessage + LINE_SEPARATOR).getBytes(StandardCharsets.UTF_8));
         } catch (Exception e) {
             reportFormattingFailure(e);
@@ -86,9 +86,10 @@ public class Logging implements Loggable {
 
     private void reportFormattingFailure(Exception failure) {
         try {
-            this.context.put(THREAD_NAME_KEY, Thread.currentThread().getName());
-            var threadName = this.context.get(THREAD_NAME_KEY);
-            var formattedError = this.formatter.getFormattedString(LogLevel.ERROR, failure.getMessage(), threadName);
+            var threadName = Thread.currentThread().getName();
+            this.context.put(THREAD_NAME_KEY, threadName);
+            var event = new LogEvent(failure.getMessage(), System.currentTimeMillis(), LogLevel.ERROR, threadName);
+            var formattedError = this.formatter.getFormattedString(event, threadName);
             this.printer.println(formattedError);
         } catch (Exception alsoFailed) {
             this.printer.println(LogLevel.color(LogLevel.ERROR)
@@ -97,27 +98,27 @@ public class Logging implements Loggable {
         }
     }
 
-    public synchronized void debug(String message) {
-        log(message, LogLevel.DEBUG);
+    public synchronized void debug(LogEvent logEvent) {
+        log(logEvent);
     }
 
-    public synchronized void info(String message) {
-        log(message, LogLevel.INFO);
+    public synchronized void info(LogEvent logEvent) {
+        log(logEvent);
     }
 
-    public synchronized void warn(String message) {
-        log(message, LogLevel.WARN);
+    public synchronized void warn(LogEvent logEvent) {
+        log(logEvent);
     }
 
-    public synchronized void error(String message) {
-        log(message, LogLevel.ERROR);
+    public synchronized void error(LogEvent logEvent) {
+        log(logEvent);
     }
 
-    public synchronized void trace(String message) {
-        log(message, LogLevel.TRACE);
+    public synchronized void trace(LogEvent logEvent) {
+        log(logEvent);
     }
 
-    public synchronized void fatal(String message) {
-        log(message, LogLevel.FATAL);
+    public synchronized void fatal(LogEvent logEvent) {
+        log(logEvent);
     }
 }
