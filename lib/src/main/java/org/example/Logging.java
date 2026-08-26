@@ -29,14 +29,8 @@ public class Logging implements Loggable {
     }
 
     @Override
-    public Loggable setCurrentLevel(LogLevel level) {
+    public synchronized Loggable setCurrentLevel(LogLevel level) {
         this.currentLevel = level;
-        return this;
-    }
-
-    @Override
-    public Loggable setContext(String key, Object value) {
-        this.context.put(key, value);
         return this;
     }
 
@@ -74,24 +68,26 @@ public class Logging implements Loggable {
 
     private synchronized void log(String message, LogLevel level) {
         try {
-            boolean silenceable = level == LogLevel.DEBUG || level == LogLevel.TRACE;
-            if (silenceable && level.severity() < this.currentLevel.severity()) {
+            if (level.severity() < this.currentLevel.severity()) {
                 return;
             }
+            this.context.put(THREAD_NAME_KEY, Thread.currentThread().getName());
             var threadName = this.context.get(THREAD_NAME_KEY);
             var formattedMessage = this.formatter.getFormattedString(level, message, threadName);
             this.printer.write((formattedMessage + LINE_SEPARATOR).getBytes(StandardCharsets.UTF_8));
         } catch (Exception e) {
             reportFormattingFailure(e);
         } finally {
+            // TODO: Consider flushing only on certain levels or based on options and not on
+            // every log call.
             this.printer.flush();
-            this.context.clear();
         }
     }
 
     private void reportFormattingFailure(Exception failure) {
         try {
-            var threadName = Thread.currentThread().getName();
+            this.context.put(THREAD_NAME_KEY, Thread.currentThread().getName());
+            var threadName = this.context.get(THREAD_NAME_KEY);
             var formattedError = this.formatter.getFormattedString(LogLevel.ERROR, failure.getMessage(), threadName);
             this.printer.println(formattedError);
         } catch (Exception alsoFailed) {

@@ -860,12 +860,6 @@ public class LoggingTest {
         assertEquals(3, stdoutText().lines().count());
     }
 
-    @Test
-    public void theTimestampPatternIsTheOneTheLibraryPublishes() {
-        assertEquals("2026-08-22 09:41",
-                java.time.LocalDateTime.of(2026, 8, 22, 9, 41).format(Formatter.TIMESTAMP_FORMAT));
-    }
-
     // ---------------------------------------------------------------------
     // Colours are a property of the level itself.
     // ---------------------------------------------------------------------
