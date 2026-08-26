@@ -98,27 +98,46 @@ public class Logging implements Loggable {
         }
     }
 
+    // TODO: These methods should be refactored to avoid code duplication. Consider using a single method that takes the log level as a parameter.
     public synchronized void debug(LogEvent logEvent) {
+        if (logEvent.getLevel() != LogLevel.DEBUG) {
+            return;
+        }
         log(logEvent);
     }
 
     public synchronized void info(LogEvent logEvent) {
+        if (logEvent.getLevel() != LogLevel.INFO) {
+            return;
+        }
         log(logEvent);
     }
 
     public synchronized void warn(LogEvent logEvent) {
+        if (logEvent.getLevel() != LogLevel.WARN) {
+            return;
+        }
         log(logEvent);
     }
 
     public synchronized void error(LogEvent logEvent) {
+        if (logEvent.getLevel() != LogLevel.ERROR) {
+            return;
+        }
         log(logEvent);
     }
 
     public synchronized void trace(LogEvent logEvent) {
+        if (logEvent.getLevel() != LogLevel.TRACE) {
+            return;
+        }
         log(logEvent);
     }
 
     public synchronized void fatal(LogEvent logEvent) {
+        if (logEvent.getLevel() != LogLevel.FATAL) {
+            return;
+        }
         log(logEvent);
     }
 }
