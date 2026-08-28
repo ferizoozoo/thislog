@@ -5,15 +5,15 @@ public interface Loggable {
 
     Loggable setCurrentLevel(LogLevel level);
 
-    void info(LogEvent logEvent);
+    void info(String message);
 
-    void warn(LogEvent logEvent);
+    void warn(String message);
 
-    void error(LogEvent logEvent);
+    void error(String message);
 
-    void trace(LogEvent logEvent);
+    void trace(String message);
 
-    void fatal(LogEvent logEvent);
+    void fatal(String message);
 
-    void debug(LogEvent logEvent);
+    void debug(String message);
 }

@@ -12,7 +12,7 @@ public class Logging implements Loggable {
     private static final String LINE_SEPARATOR = System.lineSeparator();
     private static final String THREAD_NAME_KEY = "threadName";
 
-    private LogLevel currentLevel = LogLevel.TRACE;
+    private volatile LogLevel currentLevel = LogLevel.TRACE;
     private Formatable formatter;
     private Context context;
 
@@ -24,7 +24,7 @@ public class Logging implements Loggable {
         logger.formatter = formatter;
         logger.setOptions(options);
         logger.context = new Context();
-        logger.context.put("threadName", Thread.currentThread().getName());
+        logger.context.put(THREAD_NAME_KEY, Thread.currentThread().getName());
         return logger;
     }
 
@@ -66,14 +66,16 @@ public class Logging implements Loggable {
         return this;
     }
 
-    private synchronized void log(LogEvent logEvent) {
+    private void log(LogLevel level, String message) {
+        if (level.severity() < this.currentLevel.severity()) {
+            return;
+        }
+        write(LogEvent.create(message, level, System.currentTimeMillis()));
+    }
+
+    private synchronized void write(LogEvent logEvent) {
         try {
-            if (logEvent.getLevel().severity() < this.currentLevel.severity()) {
-                return;
-            }
-            this.context.put(THREAD_NAME_KEY, logEvent.getThreadName());
-            var threadName = this.context.get(THREAD_NAME_KEY);
-            var formattedMessage = this.formatter.getFormattedString(logEvent, threadName);
+            var formattedMessage = this.formatter.getFormattedString(logEvent);
             this.printer.write((formattedMessage + LINE_SEPARATOR).getBytes(StandardCharsets.UTF_8));
         } catch (Exception e) {
             reportFormattingFailure(e);
@@ -86,10 +88,8 @@ public class Logging implements Loggable {
 
     private void reportFormattingFailure(Exception failure) {
         try {
-            var threadName = Thread.currentThread().getName();
-            this.context.put(THREAD_NAME_KEY, threadName);
-            var event = new LogEvent(failure.getMessage(), System.currentTimeMillis(), LogLevel.ERROR, threadName);
-            var formattedError = this.formatter.getFormattedString(event, threadName);
+            var event = LogEvent.create("Failed to format log message: " + failure.getMessage(), LogLevel.ERROR, System.currentTimeMillis());
+            var formattedError = this.formatter.getFormattedString(event);
             this.printer.println(formattedError);
         } catch (Exception alsoFailed) {
             this.printer.println(LogLevel.color(LogLevel.ERROR)
@@ -98,52 +98,33 @@ public class Logging implements Loggable {
         }
     }
 
-    // TODO: These methods should be refactored to avoid code duplication. Consider using a single method that takes the log level as a parameter.
     @Override
-    public synchronized void debug(LogEvent logEvent) {
-        if (logEvent.getLevel() != LogLevel.DEBUG) {
-            return;
-        }
-        log(logEvent);
+    public void trace(String message) {
+        log(LogLevel.TRACE, message);
     }
 
     @Override
-    public synchronized void info(LogEvent logEvent) {
-        if (logEvent.getLevel() != LogLevel.INFO) {
-            return;
-        }
-        log(logEvent);
+    public void debug(String message) {
+        log(LogLevel.DEBUG, message);
     }
 
     @Override
-    public synchronized void warn(LogEvent logEvent) {
-        if (logEvent.getLevel() != LogLevel.WARN) {
-            return;
-        }
-        log(logEvent);
+    public void info(String message) {
+        log(LogLevel.INFO, message);
     }
 
     @Override
-    public synchronized void error(LogEvent logEvent) {
-        if (logEvent.getLevel() != LogLevel.ERROR) {
-            return;
-        }
-        log(logEvent);
+    public void warn(String message) {
+        log(LogLevel.WARN, message);
     }
 
     @Override
-    public synchronized void trace(LogEvent logEvent) {
-        if (logEvent.getLevel() != LogLevel.TRACE) {
-            return;
-        }
-        log(logEvent);
+    public void error(String message) {
+        log(LogLevel.ERROR, message);
     }
 
     @Override
-    public synchronized void fatal(LogEvent logEvent) {
-        if (logEvent.getLevel() != LogLevel.FATAL) {
-            return;
-        }
-        log(logEvent);
+    public void fatal(String message) {
+        log(LogLevel.FATAL, message);
     }
 }

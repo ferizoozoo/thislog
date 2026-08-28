@@ -2,6 +2,7 @@ package org.example;
 
 import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
+import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
@@ -9,9 +10,11 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicReference;
 
 import org.junit.After;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNotSame;
 import static org.junit.Assert.assertNull;
@@ -23,12 +26,15 @@ import org.junit.Test;
 /**
  * The log event: everything the logger knows about a single message.
  *
- * <p>An event is the unit the whole library now moves around. A caller builds
- * one and hands it to a level method; the logger reads its level to decide
- * whether to keep it and hands the whole thing to the formatter, which reads
- * whichever parts its layout calls for. So the event has two jobs worth
- * testing separately: being a faithful carrier of the four things it was
- * built with, and arriving at the formatter unchanged.
+ * <p>An event is no longer something a caller builds. {@link Logging} creates
+ * one inside each level method and hands it to the formatter, so the event's
+ * four values are all decided by the library: the message and level come from
+ * the call, the timestamp from the logger's clock, and the thread name from
+ * whoever is running. The constructor is private, which is what makes those
+ * guarantees hold rather than merely being the convention.
+ *
+ * <p>Two jobs are worth testing separately: being a faithful carrier of what
+ * it was created with, and arriving at the formatter intact.
  */
 public class LogEventTest {
 
@@ -38,30 +44,43 @@ public class LogEventTest {
 
     private static final String NL = System.lineSeparator();
 
+    private static final long TIMEOUT_MS = 5_000;
+
     /** A timestamp far enough in the past to be distinguishable from "now". */
     private static final long AT = 1_700_000_000_000L;
-
-    private static LogEvent event(LogLevel level, String message) {
-        return new LogEvent(message, AT, level, Thread.currentThread().getName());
-    }
 
     // ---------------------------------------------------------------------
     // The event as a value.
     // ---------------------------------------------------------------------
 
     @Test
-    public void anEventCarriesTheFourThingsItWasBuiltWith() {
-        var logEvent = new LogEvent("Hello, World!", AT, LogLevel.WARN, "worker-1");
+    public void anEventCarriesTheMessageLevelAndTimestampItWasCreatedWith() {
+        var logEvent = LogEvent.create("Hello, World!", LogLevel.WARN, AT);
 
         assertEquals("Hello, World!", logEvent.getMessage());
-        assertEquals(AT, logEvent.getTimestamp());
         assertEquals(LogLevel.WARN, logEvent.getLevel());
-        assertEquals("worker-1", logEvent.getThreadName());
+        assertEquals(AT, logEvent.getTimestamp());
+    }
+
+    @Test
+    public void anEventIsStampedWithTheThreadThatCreatedIt() {
+        assertEquals(Thread.currentThread().getName(),
+                LogEvent.create("here", LogLevel.INFO, AT).getThreadName());
+    }
+
+    @Test
+    public void anEventCreatedOnAWorkerCarriesTheWorkersName() throws Exception {
+        var built = new AtomicReference<LogEvent>();
+
+        onThreadNamed("worker-1", () -> built.set(LogEvent.create("there", LogLevel.INFO, AT)));
+
+        assertEquals("the thread name is read at creation, and cannot be supplied",
+                "worker-1", built.get().getThreadName());
     }
 
     @Test
     public void readingAnEventDoesNotChangeIt() {
-        var logEvent = event(LogLevel.INFO, "read twice");
+        var logEvent = LogEvent.create("read twice", LogLevel.INFO, AT);
 
         assertEquals(logEvent.getMessage(), logEvent.getMessage());
         assertEquals(logEvent.getTimestamp(), logEvent.getTimestamp());
@@ -71,10 +90,9 @@ public class LogEventTest {
 
     @Test
     public void theLevelIsTheEnumConstantItself() {
-        var logEvent = event(LogLevel.ERROR, "boom");
+        var logEvent = LogEvent.create("boom", LogLevel.ERROR, AT);
 
-        assertSame("an event should hold the level, not a copy of its name",
-                LogLevel.ERROR, logEvent.getLevel());
+        assertSame(LogLevel.ERROR, logEvent.getLevel());
         assertEquals(LogLevel.ERROR.severity(), logEvent.getLevel().severity());
     }
 
@@ -83,7 +101,7 @@ public class LogEventTest {
         var awkward = "  two  spaces, a tab\t, a newline\n and a trailing space ";
 
         assertEquals("an event stores the message, it does not tidy it",
-                awkward, new LogEvent(awkward, AT, LogLevel.INFO, "main").getMessage());
+                awkward, LogEvent.create(awkward, LogLevel.INFO, AT).getMessage());
     }
 
     @Test
@@ -91,61 +109,57 @@ public class LogEventTest {
         var looksLikeAFormat = "100%% done, %s of %d";
 
         assertEquals(looksLikeAFormat,
-                new LogEvent(looksLikeAFormat, AT, LogLevel.INFO, "main").getMessage());
+                LogEvent.create(looksLikeAFormat, LogLevel.INFO, AT).getMessage());
     }
 
     @Test
     public void anEmptyMessageIsKept() {
-        assertEquals("", new LogEvent("", AT, LogLevel.INFO, "main").getMessage());
+        assertEquals("", LogEvent.create("", LogLevel.INFO, AT).getMessage());
     }
 
     @Test
     public void aNullMessageIsAccepted() {
-        // Characterises what the constructor does today: it validates nothing,
-        // so a null message is stored and handed on to the formatter as null.
-        assertNull(new LogEvent(null, AT, LogLevel.INFO, "main").getMessage());
+        // create() validates nothing, so a null message is stored and handed
+        // on. aNullMessageDoesNotBringTheLoggerDown covers what happens next.
+        assertNull(LogEvent.create(null, LogLevel.INFO, AT).getMessage());
     }
 
     @Test
     public void aNullLevelIsAccepted() {
-        // Nothing rejects this at construction; the logger is where it goes
-        // wrong, which anEventWithNoLevelIsReportedRatherThanThrown covers.
-        assertNull(new LogEvent("no level", AT, null, "main").getLevel());
-    }
-
-    @Test
-    public void aNullThreadNameIsAccepted() {
-        assertNull(new LogEvent("no thread", AT, LogLevel.INFO, null).getThreadName());
+        // Reachable only by calling create() directly: the logger always
+        // supplies a real level, so this cannot arrive through info() and the
+        // rest.
+        assertNull(LogEvent.create("no level", null, AT).getLevel());
     }
 
     @Test
     public void aTimestampOfZeroIsKeptRatherThanTreatedAsAbsent() {
-        assertEquals(0L, new LogEvent("at the epoch", 0L, LogLevel.INFO, "main").getTimestamp());
+        assertEquals(0L, LogEvent.create("at the epoch", LogLevel.INFO, 0L).getTimestamp());
     }
 
     @Test
     public void aNegativeTimestampIsKept() {
-        assertEquals(-1L, new LogEvent("before the epoch", -1L, LogLevel.INFO, "main").getTimestamp());
+        assertEquals(-1L, LogEvent.create("before the epoch", LogLevel.INFO, -1L).getTimestamp());
     }
 
     @Test
     public void theLargestTimestampIsKept() {
         assertEquals(Long.MAX_VALUE,
-                new LogEvent("far future", Long.MAX_VALUE, LogLevel.INFO, "main").getTimestamp());
+                LogEvent.create("far future", LogLevel.INFO, Long.MAX_VALUE).getTimestamp());
     }
+
+    // ---------------------------------------------------------------------
+    // The event is immutable, and only the library can build one.
+    // ---------------------------------------------------------------------
 
     @Test
-    public void anEventDoesNotStampItselfWithTheTimeItWasBuilt() {
-        var logEvent = event(LogLevel.INFO, "stamped by the caller");
-
-        assertEquals("the timestamp is the caller's to supply, not the event's to invent",
-                AT, logEvent.getTimestamp());
+    public void theConstructorIsNotPublic() {
+        for (Constructor<?> constructor : LogEvent.class.getDeclaredConstructors()) {
+            assertFalse("an event must only be reachable through create(...), "
+                            + "or a caller could forge a thread name",
+                    Modifier.isPublic(constructor.getModifiers()));
+        }
     }
-
-    // ---------------------------------------------------------------------
-    // The event is immutable, which is what makes it safe to hand to a
-    // formatter and to log more than once.
-    // ---------------------------------------------------------------------
 
     @Test
     public void everyFieldIsFinal() {
@@ -166,14 +180,13 @@ public class LogEventTest {
     }
 
     @Test
-    public void twoEventsBuiltFromTheSameValuesAreSeparateObjects() {
-        var one = new LogEvent("same", AT, LogLevel.INFO, "main");
-        var other = new LogEvent("same", AT, LogLevel.INFO, "main");
+    public void twoEventsCreatedFromTheSameValuesAreSeparateObjects() {
+        var one = LogEvent.create("same", LogLevel.INFO, AT);
+        var other = LogEvent.create("same", LogLevel.INFO, AT);
 
         // Characterises the design as it stands: LogEvent is a plain class
-        // with no equals/hashCode, so two events comparing equal field for
-        // field are still distinct values. LogDestination, by contrast, is a
-        // record and does compare by value.
+        // with no equals/hashCode, so two events matching field for field are
+        // still distinct. LogDestination, by contrast, is a record.
         assertNotSame(one, other);
         assertNotEquals(one, other);
         assertEquals(one.getMessage(), other.getMessage());
@@ -183,7 +196,7 @@ public class LogEventTest {
     // The event on the logging path.
     // ---------------------------------------------------------------------
 
-    /** Keeps the event objects themselves, so identity is assertable. */
+    /** Keeps the events themselves, plus whatever rode alongside them. */
     private static final class EventRecorder implements Formatable {
         private final List<LogEvent> events = new ArrayList<>();
         private final List<List<Object>> extras = new ArrayList<>();
@@ -198,6 +211,25 @@ public class LogEventTest {
         LogEvent only() {
             assertEquals("expected exactly one formatted line", 1, events.size());
             return events.get(0);
+        }
+    }
+
+    /** Fails the first format, then records, so the recovery event is captured. */
+    private static final class FailsOnceThenRecords implements Formatable {
+        private final EventRecorder delegate;
+        private boolean armed = true;
+
+        FailsOnceThenRecords(EventRecorder delegate) {
+            this.delegate = delegate;
+        }
+
+        @Override
+        public String getFormattedString(LogEvent event, Object... args) {
+            if (armed) {
+                armed = false;
+                throw new IllegalStateException("formatter exploded");
+            }
+            return delegate.getFormattedString(event, args);
         }
     }
 
@@ -223,138 +255,123 @@ public class LogEventTest {
         return Logging.getLogger(formatter, LogOptions.initiateOptions());
     }
 
-    @Test
-    public void theFormatterIsHandedTheVeryEventThatWasLogged() {
-        var recorder = new EventRecorder();
-        var logEvent = event(LogLevel.INFO, "on the wire");
+    /** Runs {@code work} to completion on a fresh thread with the given name. */
+    private static void onThreadNamed(String name, Runnable work) throws Exception {
+        var failure = new AtomicReference<Throwable>();
 
-        logger(recorder).info(logEvent);
+        var thread = new Thread(() -> {
+            try {
+                work.run();
+            } catch (Throwable t) {
+                failure.set(t);
+            }
+        }, name);
 
-        assertSame("the logger should pass the event along, not rebuild it",
-                logEvent, recorder.only());
+        thread.start();
+        thread.join(TIMEOUT_MS);
+
+        assertFalse(name + " did not finish within " + TIMEOUT_MS + "ms", thread.isAlive());
+        if (failure.get() != null) {
+            throw new AssertionError("work on " + name + " failed", failure.get());
+        }
     }
 
     @Test
-    public void theEventArrivesAtTheFormatterUnchanged() {
+    public void theLoggerBuildsAnEventCarryingTheCallItWasGiven() {
         var recorder = new EventRecorder();
 
-        logger(recorder).warn(new LogEvent("intact", AT, LogLevel.WARN, "worker-1"));
+        logger(recorder).warn("disk filling up");
 
-        assertEquals("intact", recorder.only().getMessage());
-        assertEquals(AT, recorder.only().getTimestamp());
+        assertEquals("disk filling up", recorder.only().getMessage());
         assertEquals(LogLevel.WARN, recorder.only().getLevel());
-        assertEquals("worker-1", recorder.only().getThreadName());
     }
 
     @Test
-    public void theLoggerDoesNotRestampTheEvent() {
+    public void theLoggerStampsTheEventAtTheMomentOfTheCall() {
         var recorder = new EventRecorder();
 
-        logger(recorder).info(event(LogLevel.INFO, "stamped long ago"));
+        long before = System.currentTimeMillis();
+        logger(recorder).info("stamped now");
+        long after = System.currentTimeMillis();
 
-        assertEquals("the logger must not overwrite the caller's timestamp",
-                AT, recorder.only().getTimestamp());
+        long stamped = recorder.only().getTimestamp();
+        assertTrue("expected a timestamp between " + before + " and " + after + ", got " + stamped,
+                stamped >= before && stamped <= after);
     }
 
     @Test
-    public void oneEventCanBeLoggedRepeatedlyWithoutBeingConsumed() {
+    public void theLoggerStampsTheEventWithTheThreadThatLogged() throws Exception {
         var recorder = new EventRecorder();
         var log = logger(recorder);
-        var reused = event(LogLevel.INFO, "said three times");
 
-        log.info(reused);
-        log.info(reused);
-        log.info(reused);
+        onThreadNamed("worker-1", () -> log.info("logged elsewhere"));
 
-        assertEquals(List.of(reused, reused, reused), recorder.events);
+        assertEquals("worker-1", recorder.only().getThreadName());
+        assertNotEquals(Thread.currentThread().getName(), recorder.only().getThreadName());
     }
 
     @Test
-    public void twoLoggersCanShareOneEvent() {
-        var first = new EventRecorder();
-        var second = new EventRecorder();
-        var shared = event(LogLevel.INFO, "shared");
-
-        logger(first).info(shared);
-        logger(second).info(shared);
-
-        assertSame(shared, first.only());
-        assertSame(shared, second.only());
-    }
-
-    @Test
-    public void theEventsThreadNameIsWhatTravelsAlongsideItAsAnExtraArgument() {
+    public void nothingRidesAlongsideTheEventOnTheNormalPath() {
         var recorder = new EventRecorder();
 
-        logger(recorder).info(new LogEvent("elsewhere", AT, LogLevel.INFO, "worker-1"));
+        logger(recorder).info("plain");
 
-        assertEquals("the extra argument is the event's thread name, not the logging thread's",
-                List.of("worker-1"), recorder.extras.get(0));
+        assertEquals("the event carries the thread name now, so nothing is passed separately",
+                List.of(), recorder.extras.get(0));
     }
 
     @Test
-    public void aFilteredEventNeverReachesTheFormatterAtAll() {
+    public void eachCallProducesItsOwnEvent() {
+        var recorder = new EventRecorder();
+        var log = logger(recorder);
+
+        log.info("first");
+        log.info("second");
+
+        assertEquals(2, recorder.events.size());
+        assertNotSame(recorder.events.get(0), recorder.events.get(1));
+        assertEquals(List.of("first", "second"),
+                recorder.events.stream().map(LogEvent::getMessage).toList());
+    }
+
+    @Test
+    public void aFilteredCallNeverBuildsAnEventTheFormatterCanSee() {
         var recorder = new EventRecorder();
         var log = logger(recorder);
 
         log.setCurrentLevel(LogLevel.ERROR);
-        log.info(event(LogLevel.INFO, "below the threshold"));
+        log.info("below the threshold");
 
         assertEquals(List.of(), recorder.events);
     }
 
     @Test
-    public void anEventWithNoLevelIsReportedRatherThanThrown() {
-        var recorder = new EventRecorder();
-
-        logger(recorder).info(new LogEvent("no level", AT, null, "main"));
-
-        // The threshold check dereferences the level, so a null one fails
-        // before the event is ever formatted. The logger catches it and
-        // reports through the same path a broken formatter takes: a fresh
-        // ERROR event carrying the failure.
-        assertEquals(LogLevel.ERROR, recorder.only().getLevel());
-        assertNotEquals("the reported event is the logger's, not the caller's",
-                "no level", recorder.only().getMessage());
-    }
-
-    @Test
-    public void theEventTheRecoveryPathBuildsIsStampedWhenItFailed() {
+    public void theRecoveryPathBuildsItsOwnErrorEvent() {
         var recorder = new EventRecorder();
         var log = logger(new FailsOnceThenRecords(recorder));
 
         long before = System.currentTimeMillis();
-        log.info(event(LogLevel.INFO, "never formatted"));
+        log.info("never formatted");
         long after = System.currentTimeMillis();
 
         LogEvent recovery = recorder.only();
         assertEquals(LogLevel.ERROR, recovery.getLevel());
-        assertEquals("formatter exploded", recovery.getMessage());
+        assertEquals("Failed to format log message: formatter exploded", recovery.getMessage());
         assertEquals(Thread.currentThread().getName(), recovery.getThreadName());
         assertTrue("the recovery event should be stamped when the failure happened, got "
                         + recovery.getTimestamp(),
                 recovery.getTimestamp() >= before && recovery.getTimestamp() <= after);
-        assertNotEquals("it must not inherit the failed event's timestamp",
-                AT, recovery.getTimestamp());
     }
 
-    /** Fails the first format, then records, so the recovery event is captured. */
-    private static final class FailsOnceThenRecords implements Formatable {
-        private final EventRecorder delegate;
-        private boolean armed = true;
+    @Test
+    public void theRecoveryPathPassesNothingAlongsideEither() {
+        var recorder = new EventRecorder();
 
-        FailsOnceThenRecords(EventRecorder delegate) {
-            this.delegate = delegate;
-        }
+        logger(new FailsOnceThenRecords(recorder)).info("never formatted");
 
-        @Override
-        public String getFormattedString(LogEvent event, Object... args) {
-            if (armed) {
-                armed = false;
-                throw new IllegalStateException("formatter exploded");
-            }
-            return delegate.getFormattedString(event, args);
-        }
+        // Both paths agree: the event is the whole of what a formatter gets.
+        // A Formatable can be written against one calling convention.
+        assertEquals(List.of(), recorder.extras.get(0));
     }
 
     // ---------------------------------------------------------------------
@@ -366,26 +383,32 @@ public class LogEventTest {
 
     @Test
     public void aFormatterCanRenderEveryPartOfTheEvent() {
-        Formatable everything = (logEvent, args) -> logEvent.getTimestamp()
-                + " [" + logEvent.getLevel().name() + "]"
-                + " (" + logEvent.getThreadName() + ") "
-                + logEvent.getMessage();
+        var seen = new AtomicReference<LogEvent>();
+        Formatable everything = (logEvent, args) -> {
+            seen.set(logEvent);
+            return logEvent.getTimestamp()
+                    + " [" + logEvent.getLevel().name() + "]"
+                    + " (" + logEvent.getThreadName() + ") "
+                    + logEvent.getMessage();
+        };
 
-        logger(everything).warn(new LogEvent("disk filling up", AT, LogLevel.WARN, "worker-1"));
+        logger(everything).warn("disk filling up");
 
-        assertEquals(AT + " [WARN] (worker-1) disk filling up" + NL, stdoutText());
+        assertEquals(seen.get().getTimestamp() + " [WARN] ("
+                        + Thread.currentThread().getName() + ") disk filling up" + NL,
+                stdoutText());
     }
 
     @Test
     public void theShippedFormatterReadsTheMessageOffTheEvent() {
-        logger(new Formatter(Formatable.DEFAULT_FORMAT)).info(event(LogLevel.INFO, "Hello, World!"));
+        logger(new Formatter(Formatable.DEFAULT_FORMAT)).info("Hello, World!");
 
         assertEquals(GREEN + "Hello, World!" + RESET + NL, stdoutText());
     }
 
     @Test
     public void aNullMessageDoesNotBringTheLoggerDown() {
-        logger(new Formatter("%s%s" + RESET)).info(new LogEvent(null, AT, LogLevel.INFO, "main"));
+        logger(new Formatter("%s%s" + RESET)).info(null);
 
         assertEquals("a null message should render as null rather than throw",
                 GREEN + "null" + RESET + NL, stdoutText());

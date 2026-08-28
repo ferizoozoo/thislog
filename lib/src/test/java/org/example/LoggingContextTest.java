@@ -4,16 +4,15 @@ import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicReference;
 
 import org.junit.After;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotEquals;
-import static org.junit.Assert.assertNull;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -21,64 +20,44 @@ import org.junit.Test;
  * What the logger carries alongside the message.
  *
  * <p>The thread name is the one piece of context the logger renders today, and
- * it now arrives on the {@link LogEvent} rather than being read off the
- * running thread. So the rule has changed shape: the name the formatter sees
- * is whatever the caller put on the event, and the logger neither supplies one
- * nor corrects a wrong one. Everything here follows from that.
+ * it is now read off the running thread at the moment of the call: each level
+ * method builds a {@link LogEvent}, and {@code LogEvent.create} stamps
+ * {@code Thread.currentThread().getName()} on it. A caller cannot supply one,
+ * because the constructor is private.
  *
- * <p>The logger still routes the name through a {@link Context}, writing the
- * event's name in and reading it straight back out within the same call. That
- * makes the context invisible from outside except in one respect worth
- * guarding: nothing may linger in it from one event to the next.
+ * <p>So two rules govern it. It names the thread that made the call, not the
+ * one that built the logger; and it is still there on the hundredth message,
+ * because logging reads the thread rather than consuming anything.
  *
- * <p>{@link ContextTest} covers {@link Context} on its own; this covers the
- * logger's use of it. {@link LogEventTest} covers the event itself.
+ * <p>{@link ContextTest} covers {@link Context} on its own. {@link LogEventTest}
+ * covers the event. This covers what the logger puts on it.
  */
 public class LoggingContextTest {
 
     private static final long TIMEOUT_MS = 5_000;
 
-    private static final long AT = 1_700_000_000_000L;
-
-    /** An event naming the thread it was built on, as a caller would build it. */
-    private static LogEvent event(String message) {
-        return new LogEvent(message, AT, LogLevel.INFO, Thread.currentThread().getName());
-    }
-
-    /** An event claiming a thread name of its own, whoever logs it. */
-    private static LogEvent eventFrom(String threadName, String message) {
-        return new LogEvent(message, AT, LogLevel.INFO, threadName);
-    }
-
-    private record Call(String message, List<Object> args) {
-        /** The thread name, or null when the logger passed nothing at all. */
-        Object threadName() {
-            return args.isEmpty() ? null : args.get(0);
-        }
-    }
-
     /** Shared across threads by several tests, so the list must be too. */
     private static final class Recorder implements Formatable {
-        private final List<Call> calls = Collections.synchronizedList(new ArrayList<>());
+        private final List<LogEvent> events = Collections.synchronizedList(new ArrayList<>());
 
         @Override
         public String getFormattedString(LogEvent event, Object... args) {
-            calls.add(new Call(event.getMessage(), Arrays.asList(args)));
+            events.add(event);
             return String.valueOf(event.getMessage());
         }
 
-        Call only() {
-            assertEquals("expected exactly one formatted line", 1, calls.size());
-            return calls.get(0);
+        LogEvent only() {
+            assertEquals("expected exactly one formatted line", 1, events.size());
+            return events.get(0);
         }
 
-        List<Object> threadNames() {
-            return calls.stream().map(Call::threadName).toList();
+        List<String> threadNames() {
+            return events.stream().map(LogEvent::getThreadName).toList();
         }
 
-        Call forMessage(String message) {
-            return calls.stream()
-                    .filter(call -> call.message().equals(message))
+        LogEvent forMessage(String message) {
+            return events.stream()
+                    .filter(event -> message.equals(event.getMessage()))
                     .findFirst()
                     .orElseThrow(() -> new AssertionError("no line was formatted for " + message));
         }
@@ -146,90 +125,16 @@ public class LoggingContextTest {
     }
 
     // ---------------------------------------------------------------------
-    // The name on the event is the name the formatter gets.
+    // The thread name outlives the first message.
     // ---------------------------------------------------------------------
 
     @Test
-    public void theEventsThreadNameIsHandedToTheFormatter() {
+    public void theFirstMessageCarriesTheThreadName() {
         var recorder = new Recorder();
 
-        logger(recorder).info(event("on this thread"));
+        logger(recorder).info("first");
 
-        assertEquals(thisThread(), recorder.only().threadName());
-    }
-
-    @Test
-    public void theLoggerDoesNotReplaceTheEventsThreadNameWithItsOwn() {
-        var recorder = new Recorder();
-
-        logger(recorder).info(eventFrom("worker-1", "claims another thread"));
-
-        assertEquals("the logger reports what the event says, not where it was logged",
-            "worker-1", recorder.only().threadName());
-        assertNotEquals(thisThread(), recorder.only().threadName());
-    }
-
-    @Test
-    public void anEventBuiltOnOneThreadKeepsThatNameWhenLoggedOnAnother() throws Exception {
-        var recorder = new Recorder();
-        var log = logger(recorder);
-        var built = new AtomicReference<LogEvent>();
-
-        onThreadNamed("worker", () -> built.set(event("built on the worker")));
-        log.info(built.get());
-
-        assertEquals("the name is fixed when the event is built, not when it is logged",
-            "worker", recorder.only().threadName());
-    }
-
-    @Test
-    public void aNullThreadNameIsPassedAlongAsNull() {
-        var recorder = new Recorder();
-
-        logger(recorder).info(new LogEvent("nameless", AT, LogLevel.INFO, null));
-
-        assertNull("nothing fills in a missing thread name", recorder.only().threadName());
-    }
-
-    @Test
-    public void neitherTheBuildingThreadNorTheLoggingThreadOverridesTheEvent() throws Exception {
-        var recorder = new Recorder();
-        var built = new AtomicReference<Loggable>();
-
-        onThreadNamed("builder", () -> built.set(logger(recorder)));
-        built.get().info(eventFrom("worker-1", "neither builder nor test thread"));
-
-        assertEquals("worker-1", recorder.only().threadName());
-    }
-
-    // ---------------------------------------------------------------------
-    // Nothing lingers between events.
-    //
-    // The name is routed through a Context the logger keeps for the life of
-    // the logger, so a stale entry would show up as one event wearing the
-    // previous one's name.
-    // ---------------------------------------------------------------------
-
-    @Test
-    public void oneEventsThreadNameDoesNotLeakIntoTheNext() {
-        var recorder = new Recorder();
-        var log = logger(recorder);
-
-        log.info(eventFrom("worker-1", "first"));
-        log.info(eventFrom("worker-2", "second"));
-
-        assertEquals(List.of("worker-1", "worker-2"), recorder.threadNames());
-    }
-
-    @Test
-    public void aNamelessEventDoesNotInheritThePreviousOnesName() {
-        var recorder = new Recorder();
-        var log = logger(recorder);
-
-        log.info(eventFrom("worker-1", "named"));
-        log.info(new LogEvent("nameless", AT, LogLevel.INFO, null));
-
-        assertEquals(Arrays.asList("worker-1", null), recorder.threadNames());
+        assertEquals(thisThread(), recorder.only().getThreadName());
     }
 
     @Test
@@ -237,10 +142,10 @@ public class LoggingContextTest {
         var recorder = new Recorder();
         var log = logger(recorder);
 
-        log.info(event("first"));
-        log.info(event("second"));
+        log.info("first");
+        log.info("second");
 
-        assertEquals("logging a message must read the context, not consume it",
+        assertEquals("logging a message must read the thread, not consume anything",
             List.of(thisThread(), thisThread()), recorder.threadNames());
     }
 
@@ -250,10 +155,10 @@ public class LoggingContextTest {
         var log = logger(recorder);
 
         for (int i = 0; i < 50; i++) {
-            log.info(event("message " + i));
+            log.info("message " + i);
         }
 
-        assertEquals(50, recorder.calls.size());
+        assertEquals(50, recorder.events.size());
         assertEquals(Collections.nCopies(50, thisThread()), recorder.threadNames());
     }
 
@@ -262,14 +167,14 @@ public class LoggingContextTest {
         var recorder = new Recorder();
         var log = logger(recorder);
 
-        log.trace(new LogEvent("t", AT, LogLevel.TRACE, "worker-1"));
-        log.debug(new LogEvent("d", AT, LogLevel.DEBUG, "worker-1"));
-        log.info(new LogEvent("i", AT, LogLevel.INFO, "worker-1"));
-        log.warn(new LogEvent("w", AT, LogLevel.WARN, "worker-1"));
-        log.error(new LogEvent("e", AT, LogLevel.ERROR, "worker-1"));
-        log.fatal(new LogEvent("f", AT, LogLevel.FATAL, "worker-1"));
+        log.trace("t");
+        log.debug("d");
+        log.info("i");
+        log.warn("w");
+        log.error("e");
+        log.fatal("f");
 
-        assertEquals(Collections.nCopies(6, "worker-1"), recorder.threadNames());
+        assertEquals(Collections.nCopies(6, thisThread()), recorder.threadNames());
     }
 
     @Test
@@ -278,40 +183,11 @@ public class LoggingContextTest {
         var log = logger(recorder);
 
         log.setCurrentLevel(LogLevel.INFO);
-        log.debug(new LogEvent("dropped before it reaches the formatter", AT,
-                LogLevel.DEBUG, "worker-1"));
-        log.info(eventFrom("worker-2", "kept"));
+        log.debug("dropped before it reaches the formatter");
+        log.info("kept");
 
-        assertEquals("filtering a message must leave the context as it found it",
-            "worker-2", recorder.forMessage("kept").threadName());
-    }
-
-    @Test
-    public void reconfiguringTheLoggerDoesNotCostItTheThreadName() {
-        var recorder = new Recorder();
-        var log = logger(recorder);
-
-        log.info(event("before"));
-        log.setOptions(LogOptions.initiateOptions().setFormatter(recorder));
-        log.info(event("after"));
-
-        assertEquals(List.of(thisThread(), thisThread()), recorder.threadNames());
-    }
-
-    // ---------------------------------------------------------------------
-    // The recovery path is the one place the logger names a thread itself.
-    // ---------------------------------------------------------------------
-
-    @Test
-    public void aFailedFormatIsReportedUnderTheThreadThatWasLogging() {
-        var formatter = new FailsOnce();
-
-        logger(formatter).info(eventFrom("worker-1", "this one blows the formatter up"));
-
-        assertEquals("the recovery event is the logger's own, stamped with the running thread",
-            thisThread(), formatter.delegate.only().threadName());
-        assertNotEquals("it does not inherit the failed event's thread name",
-            "worker-1", formatter.delegate.only().threadName());
+        assertEquals("filtering a message must leave the next one intact",
+            thisThread(), recorder.forMessage("kept").getThreadName());
     }
 
     @Test
@@ -319,30 +195,65 @@ public class LoggingContextTest {
         var formatter = new FailsOnce();
         var log = logger(formatter);
 
-        log.info(event("this one blows the formatter up"));
-        log.info(eventFrom("worker-2", "this one should still be intact"));
+        log.info("this one blows the formatter up");
+        log.info("this one should still be intact");
 
-        assertEquals("the recovery path must not leave the context stripped",
-            "worker-2",
-            formatter.delegate.forMessage("this one should still be intact").threadName());
+        assertEquals("the recovery path must not leave the next event stripped",
+            thisThread(),
+            formatter.delegate.forMessage("this one should still be intact").getThreadName());
+    }
+
+    @Test
+    public void reconfiguringTheLoggerDoesNotCostItTheThreadName() {
+        var recorder = new Recorder();
+        var log = logger(recorder);
+
+        log.info("before");
+        log.setOptions(LogOptions.initiateOptions().setFormatter(recorder));
+        log.info("after");
+
+        assertEquals(List.of(thisThread(), thisThread()), recorder.threadNames());
     }
 
     // ---------------------------------------------------------------------
-    // Several threads through one logger.
+    // The thread name is the caller's, not the builder's.
     // ---------------------------------------------------------------------
+
+    @Test
+    public void theThreadNameIsTheCallersRatherThanTheOneThatBuiltTheLogger() throws Exception {
+        var recorder = new Recorder();
+        var log = logger(recorder);
+
+        onThreadNamed("worker", () -> log.info("logged elsewhere"));
+
+        assertEquals("the name is read when the message is logged, not when the logger is built",
+            "worker", recorder.only().getThreadName());
+        assertNotEquals(thisThread(), recorder.only().getThreadName());
+    }
+
+    @Test
+    public void aLoggerBuiltOnAWorkerReportsTheThreadThatLogs() throws Exception {
+        var recorder = new Recorder();
+        var built = new AtomicReference<Loggable>();
+
+        onThreadNamed("builder", () -> built.set(logger(recorder)));
+        built.get().info("logged on the test thread");
+
+        assertEquals(thisThread(), recorder.only().getThreadName());
+    }
 
     @Test
     public void eachThreadSeesItsOwnNameThroughASharedLogger() throws Exception {
         var recorder = new Recorder();
         var log = logger(recorder);
 
-        onThreadNamed("worker-one", () -> log.info(event("one")));
-        onThreadNamed("worker-two", () -> log.info(event("two")));
-        log.info(event("three"));
+        onThreadNamed("worker-one", () -> log.info("one"));
+        onThreadNamed("worker-two", () -> log.info("two"));
+        log.info("three");
 
-        assertEquals("worker-one", recorder.forMessage("one").threadName());
-        assertEquals("worker-two", recorder.forMessage("two").threadName());
-        assertEquals(thisThread(), recorder.forMessage("three").threadName());
+        assertEquals("worker-one", recorder.forMessage("one").getThreadName());
+        assertEquals("worker-two", recorder.forMessage("two").getThreadName());
+        assertEquals(thisThread(), recorder.forMessage("three").getThreadName());
     }
 
     @Test
@@ -350,14 +261,14 @@ public class LoggingContextTest {
         var recorder = new Recorder();
         var log = logger(recorder);
 
-        log.info(event("before the worker ran"));
-        onThreadNamed("worker", () -> log.info(event("on the worker")));
-        log.info(event("after the worker ran"));
+        log.info("before the worker ran");
+        onThreadNamed("worker", () -> log.info("on the worker"));
+        log.info("after the worker ran");
 
-        assertEquals(thisThread(), recorder.forMessage("before the worker ran").threadName());
-        assertEquals("worker", recorder.forMessage("on the worker").threadName());
-        assertEquals("a message on one thread must not disturb another thread's context",
-            thisThread(), recorder.forMessage("after the worker ran").threadName());
+        assertEquals(thisThread(), recorder.forMessage("before the worker ran").getThreadName());
+        assertEquals("worker", recorder.forMessage("on the worker").getThreadName());
+        assertEquals("a message on one thread must not disturb another's",
+            thisThread(), recorder.forMessage("after the worker ran").getThreadName());
     }
 
     @Test
@@ -366,11 +277,58 @@ public class LoggingContextTest {
         var log = logger(recorder);
 
         onThreadNamed("worker", () -> {
-            log.info(event("first on this thread"));
-            log.info(event("second on this thread"));
+            log.info("first on this thread");
+            log.info("second on this thread");
         });
 
-        assertEquals("a thread the logger was not built on has no context to inherit",
-            List.of("worker", "worker"), recorder.threadNames());
+        assertEquals(List.of("worker", "worker"), recorder.threadNames());
+    }
+
+    @Test
+    public void twoThreadsLoggingAtOnceEachKeepTheirOwnName() throws Exception {
+        var recorder = new Recorder();
+        var log = logger(recorder);
+        var start = new CountDownLatch(1);
+
+        var one = new Thread(() -> {
+            await(start);
+            for (int i = 0; i < 25; i++) {
+                log.info("one-" + i);
+            }
+        }, "racer-one");
+
+        var two = new Thread(() -> {
+            await(start);
+            for (int i = 0; i < 25; i++) {
+                log.info("two-" + i);
+            }
+        }, "racer-two");
+
+        one.start();
+        two.start();
+        start.countDown();
+        one.join(TIMEOUT_MS);
+        two.join(TIMEOUT_MS);
+
+        assertFalse("racer-one did not finish", one.isAlive());
+        assertFalse("racer-two did not finish", two.isAlive());
+        assertEquals(50, recorder.events.size());
+
+        synchronized (recorder.events) {
+            for (LogEvent event : recorder.events) {
+                String expected = event.getMessage().startsWith("one-") ? "racer-one" : "racer-two";
+                assertEquals("every line must name the thread that logged it",
+                    expected, event.getThreadName());
+            }
+        }
+    }
+
+    private static void await(CountDownLatch latch) {
+        try {
+            latch.await();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException(e);
+        }
     }
 }
