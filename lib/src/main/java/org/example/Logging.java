@@ -5,6 +5,8 @@ package org.example;
 
 import java.io.FileOutputStream;
 import java.io.PrintStream;
+import java.io.PrintWriter;
+import java.io.StringWriter;
 import java.nio.charset.StandardCharsets;
 
 public class Logging implements Loggable {
@@ -66,17 +68,21 @@ public class Logging implements Loggable {
         return this;
     }
 
-    private void log(LogLevel level, String message) {
+    @Override
+    public void log(LogLevel level, String message, Throwable thrown) {
         if (level.severity() < this.currentLevel.severity()) {
             return;
         }
-        write(LogEvent.create(message, level, System.currentTimeMillis()));
+        write(LogEvent.create(message, level, System.currentTimeMillis(), thrown));
     }
 
     private synchronized void write(LogEvent logEvent) {
         try {
-            var formattedMessage = this.formatter.getFormattedString(logEvent);
-            this.printer.write((formattedMessage + LINE_SEPARATOR).getBytes(StandardCharsets.UTF_8));
+            var line = new StringBuilder(this.formatter.getFormattedString(logEvent));
+            if (logEvent.getThrown() != null) {
+                line.append(LINE_SEPARATOR).append(logEvent.getThrown().toString().stripTrailing());
+            }
+            this.printer.write((line + LINE_SEPARATOR).getBytes(StandardCharsets.UTF_8));
         } catch (Exception e) {
             reportFormattingFailure(e);
         } finally {
@@ -88,43 +94,13 @@ public class Logging implements Loggable {
 
     private void reportFormattingFailure(Exception failure) {
         try {
-            var event = LogEvent.create("Failed to format log message: " + failure.getMessage(), LogLevel.ERROR, System.currentTimeMillis());
-            var formattedError = this.formatter.getFormattedString(event);
-            this.printer.println(formattedError);
+            var event = LogEvent.create("Failed to format log message", LogLevel.ERROR,
+                    System.currentTimeMillis(), failure);
+            this.printer.println(this.formatter.getFormattedString(event));
         } catch (Exception alsoFailed) {
             this.printer.println(LogLevel.color(LogLevel.ERROR)
-                    + "Failed to format log message: " + failure.getMessage()
+                    + "Failed to format log message: " + failure
                     + LogLevel.color(LogLevel.RESET));
         }
-    }
-
-    @Override
-    public void trace(String message) {
-        log(LogLevel.TRACE, message);
-    }
-
-    @Override
-    public void debug(String message) {
-        log(LogLevel.DEBUG, message);
-    }
-
-    @Override
-    public void info(String message) {
-        log(LogLevel.INFO, message);
-    }
-
-    @Override
-    public void warn(String message) {
-        log(LogLevel.WARN, message);
-    }
-
-    @Override
-    public void error(String message) {
-        log(LogLevel.ERROR, message);
-    }
-
-    @Override
-    public void fatal(String message) {
-        log(LogLevel.FATAL, message);
     }
 }

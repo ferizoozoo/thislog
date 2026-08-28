@@ -5,16 +5,24 @@ public class LogEvent {
     private final long timestamp;
     private final LogLevel level;
     private final String threadName;
+    private final Throwable thrown;
 
-    private LogEvent(String message, long timestamp, LogLevel level, String threadName) {
+    private LogEvent(String message, long timestamp, LogLevel level, String threadName, Throwable thrown) {
         this.message = message;
         this.timestamp = timestamp;
         this.level = level;
         this.threadName = threadName;
+        this.thrown = thrown;
     }
 
     public static LogEvent create(String message, LogLevel level, long timestamp) {
-        return new LogEvent(message, timestamp, level, Thread.currentThread().getName());
+        return create(message, level, timestamp, null);
+    }
+
+    public static LogEvent create(String message, LogLevel level, long timestamp,
+                                  Throwable thrown) {
+        return new LogEvent(message, timestamp, level,
+                            Thread.currentThread().getName(), thrown);
     }
 
     public String getMessage() {
@@ -31,5 +39,9 @@ public class LogEvent {
 
     public String getThreadName() {
         return threadName;
+    }
+
+    public Throwable getThrown() {
+        return thrown;
     }
 }

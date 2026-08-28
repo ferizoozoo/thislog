@@ -356,7 +356,9 @@ public class LogEventTest {
 
         LogEvent recovery = recorder.only();
         assertEquals(LogLevel.ERROR, recovery.getLevel());
-        assertEquals("Failed to format log message: formatter exploded", recovery.getMessage());
+        assertEquals("Failed to format log message", recovery.getMessage());
+        assertEquals("the failure rides on the event, not inside the message text",
+                "formatter exploded", recovery.getThrown().getMessage());
         assertEquals(Thread.currentThread().getName(), recovery.getThreadName());
         assertTrue("the recovery event should be stamped when the failure happened, got "
                         + recovery.getTimestamp(),

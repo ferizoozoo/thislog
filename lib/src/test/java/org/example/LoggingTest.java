@@ -52,11 +52,11 @@ public class LoggingTest {
     // ---------------------------------------------------------------------
 
     private record Call(LogLevel level, String message, long timestamp,
-            String threadName, List<Object> args) {
+            String threadName, Throwable thrown, List<Object> args) {
 
         static Call of(LogEvent event, Object... args) {
             return new Call(event.getLevel(), event.getMessage(), event.getTimestamp(),
-                    event.getThreadName(), Arrays.asList(args));
+                    event.getThreadName(), event.getThrown(), Arrays.asList(args));
         }
 
         String rendered() {
@@ -708,7 +708,8 @@ public class LoggingTest {
         log.setOptions(with(replacement)).info("formatted at last");
 
         assertEquals(
-                RED + "Failed to format log message: formatter exploded" + RESET + NL
+                RED + "Failed to format log message: "
+                        + "java.lang.IllegalStateException: formatter exploded" + RESET + NL
                         + replacement.only().rendered() + NL,
                 stdoutText());
     }
@@ -767,16 +768,35 @@ public class LoggingTest {
         Call recovery = formatter.calls.get(0);
         assertEquals("the recovery line is reported at ERROR whatever failed",
                 LogLevel.ERROR, recovery.level());
-        assertEquals("Failed to format log message: formatter exploded", recovery.message());
-        assertEquals(recovery.rendered() + NL, stdoutText());
+        assertEquals("Failed to format log message", recovery.message());
+        assertEquals("the failure travels on the event rather than inside its message",
+                "formatter exploded", recovery.thrown().getMessage());
+        assertTrue("expected the rendered line first, got: " + stdoutText(),
+                stdoutText().startsWith(recovery.rendered() + NL));
+    }
+
+    @Test
+    public void theRecoveryLineCarriesTheFailureOnlyOnTheEvent() {
+        var formatter = new FailsOnceFormatter();
+
+        logger(formatter).info("never formatted");
+
+        // reportFormattingFailure prints just the formatted line, so what the
+        // reader sees depends entirely on whether their Formatable reaches for
+        // event.getThrown(). The recording one here does not.
+        assertEquals(formatter.calls.get(0).rendered() + NL, stdoutText());
+        assertEquals("formatter exploded", formatter.calls.get(0).thrown().getMessage());
     }
 
     @Test
     public void aFormatterThatAlwaysFailsFallsBackToAPlainNotice() {
         logger(new AlwaysFailsFormatter()).info("never formatted");
 
+        // The last-ditch branch uses toString(), so the exception type survives
+        // even when getMessage() would have been null.
         assertEquals(
-                RED + "Failed to format log message: formatter exploded" + RESET + NL,
+                RED + "Failed to format log message: "
+                        + "java.lang.IllegalStateException: formatter exploded" + RESET + NL,
                 stdoutText());
     }
 
@@ -788,6 +808,124 @@ public class LoggingTest {
         log.error("second");
 
         assertEquals("the caller should keep running either way", 2, stdoutText().lines().count());
+    }
+
+    // ---------------------------------------------------------------------
+    // Exceptions.
+    //
+    // A throwable is the application's failure, not the logger's: the caller
+    // hands over the object rather than a string, so the logger can render the
+    // frames and the cause chain, and can decline to render anything at all
+    // when the line is suppressed.
+    // ---------------------------------------------------------------------
+
+    @Test
+    public void theExceptionReachesTheFormatterOnTheEvent() {
+        var formatter = new RecordingFormatter();
+        var boom = new IllegalStateException("payment declined");
+
+        logger(formatter).error("payment failed", boom);
+
+        assertSame(boom, formatter.only().thrown());
+        assertEquals(LogLevel.ERROR, formatter.only().level());
+        assertEquals("payment failed", formatter.only().message());
+    }
+
+    @Test
+    public void theExceptionIsPrintedBeneathTheLineItBelongsTo() {
+        var formatter = new RecordingFormatter();
+
+        logger(formatter).error("payment failed", new IllegalStateException("payment declined"));
+
+        assertEquals(formatter.only().rendered() + NL
+                        + "java.lang.IllegalStateException: payment declined" + NL,
+                stdoutText());
+    }
+
+    @Test
+    public void anExceptionIsRenderedByToStringSoNoFramesAppear() {
+        var formatter = new RecordingFormatter();
+
+        logger(formatter).error("payment failed", new IllegalStateException("payment declined"));
+
+        // Characterises the rendering in use: Throwable.toString() gives the
+        // type and the message. Switching to printStackTrace would add the
+        // frames, and this test is where that change would announce itself.
+        assertFalse("toString carries no frames, got: " + stdoutText(),
+                stdoutText().contains("at org.example.LoggingTest"));
+    }
+
+    @Test
+    public void aWrappedExceptionShowsOnlyItsOutermostLayer() {
+        var cause = new ArrayIndexOutOfBoundsException("Index 3 out of bounds for length 0");
+        var wrapper = new IllegalStateException("could not load order 4711", cause);
+
+        logger(new Formatter("%2$s")).error("load failed", wrapper);
+
+        String written = stdoutText();
+        assertTrue("the wrapper is named, got: " + written,
+                written.contains("java.lang.IllegalStateException: could not load order 4711"));
+        assertFalse("toString stops at the outermost exception, got: " + written,
+                written.contains("ArrayIndexOutOfBoundsException"));
+    }
+
+    @Test
+    public void everyLevelMethodAcceptsAThrowable() {
+        var formatter = new RecordingFormatter();
+        var log = logger(formatter);
+        var boom = new IllegalStateException("boom");
+
+        log.trace("t", boom);
+        log.debug("d", boom);
+        log.info("i", boom);
+        log.warn("w", boom);
+        log.error("e", boom);
+        log.fatal("f", boom);
+
+        assertEquals(
+                List.of(LogLevel.TRACE, LogLevel.DEBUG, LogLevel.INFO,
+                        LogLevel.WARN, LogLevel.ERROR, LogLevel.FATAL),
+                formatter.calls.stream().map(Call::level).toList());
+        assertEquals(Collections.nCopies(6, boom),
+                formatter.calls.stream().map(Call::thrown).toList());
+    }
+
+    @Test
+    public void aNullThrowableLogsExactlyLikeTheOneArgumentCall() {
+        var passingNull = new RecordingFormatter();
+        logger(passingNull).info("same either way", null);
+        String withNull = stdoutText();
+
+        stdout.reset();
+        var omitting = new RecordingFormatter();
+        logger(omitting).info("same either way");
+
+        assertNull(passingNull.only().thrown());
+        assertNull(omitting.only().thrown());
+        assertEquals(withNull, stdoutText());
+    }
+
+    @Test
+    public void aSuppressedCallNeverRendersItsException() {
+        var formatter = new RecordingFormatter();
+        var log = logger(formatter);
+
+        log.setCurrentLevel(LogLevel.ERROR);
+        log.debug("expensive to render", new IllegalStateException("never rendered"));
+
+        assertEquals("rendering a stack trace is exactly the work a threshold should save",
+                List.of(), formatter.calls);
+        assertEquals("", stdoutText());
+    }
+
+    @Test
+    public void theGeneralLogMethodIsUsableDirectly() {
+        var formatter = new RecordingFormatter();
+
+        logger(formatter).log(LogLevel.WARN, "through the general method", null);
+
+        assertEquals(LogLevel.WARN, formatter.only().level());
+        assertEquals("through the general method", formatter.only().message());
     }
 
     // ---------------------------------------------------------------------
