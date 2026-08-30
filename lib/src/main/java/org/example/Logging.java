@@ -6,6 +6,8 @@ package org.example;
 import java.io.FileOutputStream;
 import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
+import java.util.Collections;
+import java.util.IdentityHashMap;
 
 public class Logging implements Loggable, AutoCloseable {
 
@@ -85,7 +87,7 @@ public class Logging implements Loggable, AutoCloseable {
         try {
             var line = new StringBuilder(this.formatter.format(logEvent));
             if (logEvent.getThrown() != null) {
-                line.append(LINE_SEPARATOR).append(logEvent.getThrown().toString().stripTrailing());
+                appendThrowable(line, logEvent.getThrown());
             }
             this.printer.write((line + LINE_SEPARATOR).getBytes(StandardCharsets.UTF_8));
         } catch (Exception e) {
@@ -94,6 +96,19 @@ public class Logging implements Loggable, AutoCloseable {
             if (logEvent.getLevel().severity() >= FLUSH_THRESHOLD.severity()) {
                 this.printer.flush();
             }
+        }
+    }
+
+    private static void appendThrowable(StringBuilder line, Throwable thrown) {
+        line.append(LINE_SEPARATOR).append(thrown.toString().stripTrailing());
+
+        // A cause chain can be cyclic, so walk it by identity and stop on a repeat.
+        var seen = Collections.newSetFromMap(new IdentityHashMap<Throwable, Boolean>());
+        seen.add(thrown);
+        for (var cause = thrown.getCause(); cause != null && seen.add(cause); cause = cause.getCause()) {
+            line.append(LINE_SEPARATOR)
+                    .append("Caused by: ")
+                    .append(cause.toString().stripTrailing());
         }
     }
 

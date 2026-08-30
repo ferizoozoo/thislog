@@ -75,7 +75,7 @@ public final class Demo {
     }
 
     private static void anExceptionRidesUnderItsLine() {
-        heading("5. A throwable is rendered on its own line, by toString");
+        heading("5. A throwable and its causes ride under the line");
         var log = Logging.getLogger(LogFormatter.colored(new PatternFormatter("%s")),
                 LogOptions.initiateOptions());
         var cause = new IllegalArgumentException("negative quantity: -3");

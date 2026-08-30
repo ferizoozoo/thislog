@@ -849,17 +849,41 @@ public class LoggingTest {
     }
 
     @Test
-    public void aWrappedExceptionShowsOnlyItsOutermostLayer() {
+    public void aWrappedExceptionShowsItsWholeCauseChain() {
         var cause = new ArrayIndexOutOfBoundsException("Index 3 out of bounds for length 0");
         var wrapper = new IllegalStateException("could not load order 4711", cause);
 
         logger(new PatternFormatter("%s")).error("load failed", wrapper);
 
-        String written = stdoutText();
-        assertTrue("the wrapper is named, got: " + written,
-                written.contains("java.lang.IllegalStateException: could not load order 4711"));
-        assertFalse("toString stops at the outermost exception, got: " + written,
-                written.contains("ArrayIndexOutOfBoundsException"));
+        assertEquals("load failed" + NL
+                + "java.lang.IllegalStateException: could not load order 4711" + NL
+                + "Caused by: java.lang.ArrayIndexOutOfBoundsException: "
+                + "Index 3 out of bounds for length 0" + NL,
+                stdoutText());
+    }
+
+    @Test
+    public void aCauselessExceptionAddsNoCausedByLine() {
+        logger(new PatternFormatter("%s")).error("load failed",
+                new IllegalStateException("could not load order 4711"));
+
+        assertEquals("load failed" + NL
+                + "java.lang.IllegalStateException: could not load order 4711" + NL,
+                stdoutText());
+    }
+
+    @Test
+    public void aCyclicCauseChainTerminatesRatherThanSpinning() {
+        var first = new IllegalStateException("first");
+        var second = new IllegalStateException("second", first);
+        first.initCause(second);
+
+        logger(new PatternFormatter("%s")).error("tangled", second);
+
+        assertEquals("tangled" + NL
+                + "java.lang.IllegalStateException: second" + NL
+                + "Caused by: java.lang.IllegalStateException: first" + NL,
+                stdoutText());
     }
 
     @Test
