@@ -196,15 +196,13 @@ public class LogEventTest {
     // The event on the logging path.
     // ---------------------------------------------------------------------
 
-    /** Keeps the events themselves, plus whatever rode alongside them. */
-    private static final class EventRecorder implements Formatable {
+    /** Keeps the events the logger hands to the formatter. */
+    private static final class EventRecorder implements LogFormatter {
         private final List<LogEvent> events = new ArrayList<>();
-        private final List<List<Object>> extras = new ArrayList<>();
 
         @Override
-        public String getFormattedString(LogEvent event, Object... args) {
+        public String format(LogEvent event) {
             events.add(event);
-            extras.add(Arrays.asList(args));
             return String.valueOf(event.getMessage());
         }
 
@@ -215,7 +213,7 @@ public class LogEventTest {
     }
 
     /** Fails the first format, then records, so the recovery event is captured. */
-    private static final class FailsOnceThenRecords implements Formatable {
+    private static final class FailsOnceThenRecords implements LogFormatter {
         private final EventRecorder delegate;
         private boolean armed = true;
 
@@ -224,12 +222,12 @@ public class LogEventTest {
         }
 
         @Override
-        public String getFormattedString(LogEvent event, Object... args) {
+        public String format(LogEvent event) {
             if (armed) {
                 armed = false;
                 throw new IllegalStateException("formatter exploded");
             }
-            return delegate.getFormattedString(event, args);
+            return delegate.format(event);
         }
     }
 
@@ -251,7 +249,7 @@ public class LogEventTest {
         return stdout.toString(StandardCharsets.UTF_8);
     }
 
-    private static Loggable logger(Formatable formatter) {
+    private static Loggable logger(LogFormatter formatter) {
         return Logging.getLogger(formatter, LogOptions.initiateOptions());
     }
 
@@ -311,16 +309,6 @@ public class LogEventTest {
     }
 
     @Test
-    public void nothingRidesAlongsideTheEventOnTheNormalPath() {
-        var recorder = new EventRecorder();
-
-        logger(recorder).info("plain");
-
-        assertEquals("the event carries the thread name now, so nothing is passed separately",
-                List.of(), recorder.extras.get(0));
-    }
-
-    @Test
     public void eachCallProducesItsOwnEvent() {
         var recorder = new EventRecorder();
         var log = logger(recorder);
@@ -365,17 +353,6 @@ public class LogEventTest {
                 recovery.getTimestamp() >= before && recovery.getTimestamp() <= after);
     }
 
-    @Test
-    public void theRecoveryPathPassesNothingAlongsideEither() {
-        var recorder = new EventRecorder();
-
-        logger(new FailsOnceThenRecords(recorder)).info("never formatted");
-
-        // Both paths agree: the event is the whole of what a formatter gets.
-        // A Formatable can be written against one calling convention.
-        assertEquals(List.of(), recorder.extras.get(0));
-    }
-
     // ---------------------------------------------------------------------
     // What a formatter can build out of an event.
     //
@@ -386,7 +363,7 @@ public class LogEventTest {
     @Test
     public void aFormatterCanRenderEveryPartOfTheEvent() {
         var seen = new AtomicReference<LogEvent>();
-        Formatable everything = (logEvent, args) -> {
+        LogFormatter everything = logEvent -> {
             seen.set(logEvent);
             return logEvent.getTimestamp()
                     + " [" + logEvent.getLevel().name() + "]"
@@ -403,16 +380,16 @@ public class LogEventTest {
 
     @Test
     public void theShippedFormatterReadsTheMessageOffTheEvent() {
-        logger(new Formatter(Formatable.DEFAULT_FORMAT)).info("Hello, World!");
+        logger(new PatternFormatter(PatternFormatter.DEFAULT_PATTERN)).info("Hello, World!");
 
-        assertEquals(GREEN + "Hello, World!" + RESET + NL, stdoutText());
+        assertEquals("Hello, World!" + NL, stdoutText());
     }
 
     @Test
     public void aNullMessageDoesNotBringTheLoggerDown() {
-        logger(new Formatter("%s%s" + RESET)).info(null);
+        logger(new PatternFormatter("%s")).info(null);
 
         assertEquals("a null message should render as null rather than throw",
-                GREEN + "null" + RESET + NL, stdoutText());
+                "null" + NL, stdoutText());
     }
 }

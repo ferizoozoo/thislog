@@ -18,12 +18,6 @@ repositories {
 dependencies {
     // Use JUnit test framework.
     testImplementation(libs.junit)
-
-    // This dependency is exported to consumers, that is to say found on their compile classpath.
-    api(libs.commons.math3)
-
-    // This dependency is used internally, and not exposed to consumers on their own compile classpath.
-    implementation(libs.guava)
 }
 
 tasks.withType<Test>().configureEach {
@@ -43,4 +37,20 @@ java {
     toolchain {
         languageVersion = JavaLanguageVersion.of(21)
     }
+}
+
+// A runnable showcase for eyeballing the output. It lives in its own source set
+// so it is not published in the library jar.
+sourceSets {
+    create("demo") {
+        compileClasspath += sourceSets.main.get().output
+        runtimeClasspath += sourceSets.main.get().output
+    }
+}
+
+tasks.register<JavaExec>("runDemo") {
+    group = "application"
+    description = "Prints one of every rendering so the visuals can be checked."
+    mainClass = "org.example.Demo"
+    classpath = sourceSets["demo"].runtimeClasspath
 }

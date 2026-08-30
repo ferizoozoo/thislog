@@ -2,7 +2,7 @@ package org.example;
 
 public class LogOptions {
     private LogDestination destination;
-    private Formatable formatter;
+    private LogFormatter formatter;
 
     public static LogOptions initiateOptions() {
         return new LogOptions();
@@ -17,12 +17,12 @@ public class LogOptions {
         return this.destination;
     }
 
-    public LogOptions setFormatter(Formatable formatter) {
+    public LogOptions setFormatter(LogFormatter formatter) {
         this.formatter = formatter;
         return this;
     }
 
-    public Formatable getFormatter() {
+    public LogFormatter getFormatter() {
         return this.formatter;
     }
 }

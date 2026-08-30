@@ -40,11 +40,11 @@ public class LevelFilteringTest {
     public TemporaryFolder tempFolder = new TemporaryFolder();
 
     /** Records what got as far as formatting, so suppression is visible. */
-    private static final class Recorder implements Formatable {
+    private static final class Recorder implements LogFormatter {
         private final List<LogLevel> levels = new ArrayList<>();
 
         @Override
-        public String getFormattedString(LogEvent event, Object... args) {
+        public String format(LogEvent event) {
             levels.add(event.getLevel());
             return event.getLevel().name() + " " + event.getMessage();
         }

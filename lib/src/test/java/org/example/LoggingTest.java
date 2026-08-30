@@ -20,6 +20,7 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 import org.junit.Before;
 import org.junit.Rule;
@@ -36,7 +37,7 @@ public class LoggingTest {
 
     private static final String NL = System.lineSeparator();
 
-    /** Fixed timestamp for events built directly, to test Formatter on its own. */
+    /** Fixed timestamp for events built directly, to test PatternFormatter on its own. */
     private static final long AT = 1_700_000_000_000L;
 
     @Rule
@@ -52,11 +53,11 @@ public class LoggingTest {
     // ---------------------------------------------------------------------
 
     private record Call(LogLevel level, String message, long timestamp,
-            String threadName, Throwable thrown, List<Object> args) {
+            String threadName, Throwable thrown) {
 
-        static Call of(LogEvent event, Object... args) {
+        static Call of(LogEvent event) {
             return new Call(event.getLevel(), event.getMessage(), event.getTimestamp(),
-                    event.getThreadName(), event.getThrown(), Arrays.asList(args));
+                    event.getThreadName(), event.getThrown());
         }
 
         String rendered() {
@@ -64,12 +65,12 @@ public class LoggingTest {
         }
     }
 
-    private static final class RecordingFormatter implements Formatable {
+    private static final class RecordingFormatter implements LogFormatter {
         private final List<Call> calls = new ArrayList<>();
 
         @Override
-        public String getFormattedString(LogEvent event, Object... args) {
-            var call = Call.of(event, args);
+        public String format(LogEvent event) {
+            var call = Call.of(event);
             calls.add(call);
             return call.rendered();
         }
@@ -81,25 +82,25 @@ public class LoggingTest {
     }
 
     /** Throws on its first call only, so the logger's recovery path can format. */
-    private static final class FailsOnceFormatter implements Formatable {
+    private static final class FailsOnceFormatter implements LogFormatter {
         private final List<Call> calls = new ArrayList<>();
         private boolean armed = true;
 
         @Override
-        public String getFormattedString(LogEvent event, Object... args) {
+        public String format(LogEvent event) {
             if (armed) {
                 armed = false;
                 throw new IllegalStateException("formatter exploded");
             }
-            var call = Call.of(event, args);
+            var call = Call.of(event);
             calls.add(call);
             return call.rendered();
         }
     }
 
-    private static final class AlwaysFailsFormatter implements Formatable {
+    private static final class AlwaysFailsFormatter implements LogFormatter {
         @Override
-        public String getFormattedString(LogEvent event, Object... args) {
+        public String format(LogEvent event) {
             throw new IllegalStateException("formatter exploded");
         }
     }
@@ -141,12 +142,14 @@ public class LoggingTest {
         return LogOptions.initiateOptions().setDestination(destination);
     }
 
-    /** Logging only publishes the two-argument factory, so tests go through this. */
-    private static Loggable logger(Formatable formatter) {
+    /**
+     * Logging only publishes the two-argument factory, so tests go through this.
+     */
+    private static Loggable logger(LogFormatter formatter) {
         return Logging.getLogger(formatter, LogOptions.initiateOptions());
     }
 
-    private static LogOptions with(Formatable formatter) {
+    private static LogOptions with(LogFormatter formatter) {
         return LogOptions.initiateOptions().setFormatter(formatter);
     }
 
@@ -264,16 +267,6 @@ public class LoggingTest {
                 formatter.only().timestamp() >= before
                         && formatter.only().timestamp() <= after);
         assertEquals(Thread.currentThread().getName(), formatter.only().threadName());
-    }
-
-    @Test
-    public void nothingIsPassedAlongsideTheEvent() {
-        var formatter = new RecordingFormatter();
-
-        logger(formatter).info("plain");
-
-        assertEquals("the event carries everything the formatter needs",
-                List.of(), formatter.only().args());
     }
 
     // ---------------------------------------------------------------------
@@ -679,10 +672,10 @@ public class LoggingTest {
 
     @Test
     public void swappingFormattersChangesTheShapeOfTheLinesThatFollow() {
-        var log = logger(new Formatter("[%2$s]"));
+        var log = logger(new PatternFormatter("[%s]"));
 
         log.info("first");
-        log.setOptions(with(new Formatter("<%2$s>"))).info("second");
+        log.setOptions(with(new PatternFormatter("<%s>"))).info("second");
 
         assertEquals("the swap must not reach back over what was already written",
                 "[first]" + NL + "<second>" + NL, stdoutText());
@@ -782,7 +775,7 @@ public class LoggingTest {
         logger(formatter).info("never formatted");
 
         // reportFormattingFailure prints just the formatted line, so what the
-        // reader sees depends entirely on whether their Formatable reaches for
+        // reader sees depends entirely on whether their LogFormatter reaches for
         // event.getThrown(). The recording one here does not.
         assertEquals(formatter.calls.get(0).rendered() + NL, stdoutText());
         assertEquals("formatter exploded", formatter.calls.get(0).thrown().getMessage());
@@ -838,7 +831,7 @@ public class LoggingTest {
         logger(formatter).error("payment failed", new IllegalStateException("payment declined"));
 
         assertEquals(formatter.only().rendered() + NL
-                        + "java.lang.IllegalStateException: payment declined" + NL,
+                + "java.lang.IllegalStateException: payment declined" + NL,
                 stdoutText());
     }
 
@@ -860,7 +853,7 @@ public class LoggingTest {
         var cause = new ArrayIndexOutOfBoundsException("Index 3 out of bounds for length 0");
         var wrapper = new IllegalStateException("could not load order 4711", cause);
 
-        logger(new Formatter("%2$s")).error("load failed", wrapper);
+        logger(new PatternFormatter("%s")).error("load failed", wrapper);
 
         String written = stdoutText();
         assertTrue("the wrapper is named, got: " + written,
@@ -964,26 +957,36 @@ public class LoggingTest {
     }
 
     // ---------------------------------------------------------------------
-    // The shipped Formatter, exercised directly.
+    // The shipped PatternFormatter, exercised directly.
     // ---------------------------------------------------------------------
 
     @Test
-    public void theShippedFormatterFillsInTheColourThenTheMessage() {
-        assertEquals(YELLOW + "[Careful]",
-                new Formatter("%s[%s]")
-                        .getFormattedString(LogEvent.create("Careful", LogLevel.WARN, AT)));
+    public void theShippedFormatterFillsItsConversionWithTheMessage() {
+        assertEquals("[Careful]",
+                new PatternFormatter("[%s]")
+                        .format(LogEvent.create("Careful", LogLevel.WARN, AT)));
     }
 
     @Test
     public void theShippedFormatterHonoursTheFormatItWasBuiltWith() {
-        assertEquals("Careful" + YELLOW,
-                new Formatter("%2$s%1$s")
-                        .getFormattedString(LogEvent.create("Careful", LogLevel.WARN, AT)));
+        assertEquals("<<Careful>>",
+                new PatternFormatter("<<%s>>")
+                        .format(LogEvent.create("Careful", LogLevel.WARN, AT)));
     }
 
     @Test
-    public void theShippedFormatterColoursByTheLevelTheEventCarries() {
-        var log = logger(new Formatter("%s%s" + RESET));
+    public void theShippedFormatterAddsNoColourOfItsOwn() {
+        var log = logger(new PatternFormatter("%s"));
+
+        log.warn("careful");
+        log.error("boom");
+
+        assertEquals("careful" + NL + "boom" + NL, stdoutText());
+    }
+
+    @Test
+    public void theColouredWrapperColoursByTheLevelTheEventCarries() {
+        var log = logger(LogFormatter.colored(new PatternFormatter("%s")));
 
         log.warn("careful");
         log.error("boom");
@@ -992,40 +995,51 @@ public class LoggingTest {
     }
 
     @Test
-    public void theDefaultFormatColoursTheMessageAndClosesTheColour() {
-        assertEquals(GREEN + "Hello, World!" + RESET,
-                new Formatter(Formatable.DEFAULT_FORMAT)
-                        .getFormattedString(LogEvent.create("Hello, World!", LogLevel.INFO, AT)));
+    public void theColouredWrapperKeepsWhateverLayoutItWraps() {
+        assertEquals(YELLOW + "[Careful]" + RESET,
+                LogFormatter.colored(new PatternFormatter("[%s]"))
+                        .format(LogEvent.create("Careful", LogLevel.WARN, AT)));
+    }
+
+    @Test
+    public void theDefaultFormatRendersTheMessageAndNothingElse() {
+        assertEquals("Hello, World!",
+                new PatternFormatter(PatternFormatter.DEFAULT_PATTERN)
+                        .format(LogEvent.create("Hello, World!", LogLevel.INFO, AT)));
     }
 
     @Test
     public void theDefaultFormatCarriesAMessageAllTheWayToTheDestination() {
-        logger(new Formatter(Formatable.DEFAULT_FORMAT)).warn("Careful");
+        logger(new PatternFormatter(PatternFormatter.DEFAULT_PATTERN)).warn("Careful");
 
-        assertEquals(YELLOW + "Careful" + RESET + NL, stdoutText());
+        assertEquals("Careful" + NL, stdoutText());
     }
 
     @Test
-    public void extraArgumentsAreSpreadIntoTheFormatRatherThanPassedAsAnArray() {
-        assertEquals(GREEN + "disk full: 91% of 500GB",
-                new Formatter("%s%s: %s%% of %sGB")
-                        .getFormattedString(LogEvent.create("disk full", LogLevel.INFO, AT),
-                                91, 500));
+    public void aFileDestinationGetsNoEscapeSequencesFromTheDefaultFormat() throws Exception {
+        // Colour belongs to the destination, so an uncoloured formatter is what
+        // keeps escape sequences out of a file someone will later grep.
+        File sink = tempFolder.newFile();
+        Logging.getLogger(new PatternFormatter(PatternFormatter.DEFAULT_PATTERN),
+                to(LogDestination.file(sink.getAbsolutePath()))).info("user signed in");
+
+        var written = Files.readString(sink.toPath());
+        assertFalse("no escape sequences belong in a file, got: " + written,
+                written.contains(ESC));
+        assertEquals("user signed in" + NL, written);
     }
 
     @Test
-    public void surplusArgumentsAreIgnoredByTheFormat() {
-        assertEquals(GREEN + "terse",
-                new Formatter("%s%s")
-                        .getFormattedString(LogEvent.create("terse", LogLevel.INFO, AT), "unused"));
+    public void aFormatterBuiltWithoutAPatternIsRejectedAtTheConstructor() {
+        assertThrows(NullPointerException.class, () -> new PatternFormatter(null));
     }
 
     @Test
     public void aFormatReachingPastTheMessageFailsThroughTheLogger() {
-        // The logger passes no extra arguments, so a format expecting a third
-        // one has nothing to fill it with and comes out through the recovery
-        // path rather than reaching the caller.
-        logger(new Formatter("%s%s %3$s")).info("needs a third argument");
+        // The formatter is handed the message and nothing else, so a format
+        // expecting a second argument has nothing to fill it with and comes out
+        // through the recovery path rather than reaching the caller.
+        logger(new PatternFormatter("%s %2$s")).info("needs a second argument");
 
         assertTrue("expected the failure to be reported, got: " + stdoutText(),
                 stdoutText().contains("Failed to format log message:"));
@@ -1033,14 +1047,14 @@ public class LoggingTest {
 
     @Test
     public void theShippedFormatterWritesItsLineToTheDestination() {
-        logger(new Formatter("%s%s" + RESET)).info("Hello, World!");
+        logger(new PatternFormatter("%s")).info("Hello, World!");
 
-        assertEquals(GREEN + "Hello, World!" + RESET + NL, stdoutText());
+        assertEquals("Hello, World!" + NL, stdoutText());
     }
 
     @Test
     public void theShippedFormatterEmitsOneLinePerCall() {
-        var log = logger(new Formatter("%s%s" + RESET));
+        var log = logger(new PatternFormatter("%s"));
 
         log.info("first");
         log.warn("second");
@@ -1051,11 +1065,11 @@ public class LoggingTest {
 
     @Test
     public void theShippedFormatterLeavesTheTimestampAndThreadNameToOtherLayouts() {
-        // Formatter spends only the colour and the message. The event still
-        // carries the rest, so a Formatable that wants them can reach for them.
-        logger(new Formatter("%s%s" + RESET)).info("terse");
+        // PatternFormatter spends only the message. The event still carries the rest,
+        // so a LogFormatter that wants them can reach for them.
+        logger(new PatternFormatter("%s")).info("terse");
 
-        assertEquals(GREEN + "terse" + RESET + NL, stdoutText());
+        assertEquals("terse" + NL, stdoutText());
     }
 
     // ---------------------------------------------------------------------
@@ -1070,7 +1084,7 @@ public class LoggingTest {
         assertEquals(YELLOW, LogLevel.color(LogLevel.WARN));
         assertEquals(RED, LogLevel.color(LogLevel.ERROR));
         assertEquals(RED, LogLevel.color(LogLevel.FATAL));
-        assertEquals(RESET, LogLevel.color(LogLevel.RESET));
+        assertEquals(RESET, LogLevel.color(LogLevel.OFF));
     }
 
     @Test
@@ -1095,7 +1109,7 @@ public class LoggingTest {
     @Test
     public void concurrentLoggingWritesEveryLineWholeAndExactlyOnce() throws Exception {
         File sink = tempFolder.newFile();
-        var log = Logging.getLogger(new Formatter("%2$s"),
+        var log = Logging.getLogger(new PatternFormatter("%s"),
                 to(LogDestination.file(sink.getAbsolutePath())));
 
         int threadCount = 4;

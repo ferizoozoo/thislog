@@ -1,11 +1,11 @@
 package org.example;
 
 public enum LogLevel {
-    TRACE(10), DEBUG(20), INFO(30), WARN(40), ERROR(50), FATAL(60), RESET(0);
+    TRACE(10), DEBUG(20), INFO(30), WARN(40), ERROR(50), FATAL(60), OFF(Integer.MAX_VALUE);
 
     private final int severity;
 
-    private static final String RST = "\u001B[0m";
+    private static final String RESET = "\u001B[0m";
     private static final String GREEN = "\u001B[32m";
     private static final String YELLOW = "\u001B[33m";
     private static final String RED = "\u001B[31m";
@@ -33,10 +33,8 @@ public enum LogLevel {
                 BLUE;
             case FATAL ->
                 RED;
-            case RESET ->
-                RST;
             default ->
-                RST;
+                RESET;
         };
     }
 }

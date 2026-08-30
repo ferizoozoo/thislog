@@ -5,28 +5,24 @@ package org.example;
 
 import java.io.FileOutputStream;
 import java.io.PrintStream;
-import java.io.PrintWriter;
-import java.io.StringWriter;
 import java.nio.charset.StandardCharsets;
 
-public class Logging implements Loggable {
+public class Logging implements Loggable, AutoCloseable {
 
     private static final String LINE_SEPARATOR = System.lineSeparator();
-    private static final String THREAD_NAME_KEY = "threadName";
+
+    private static final LogLevel FLUSH_THRESHOLD = LogLevel.ERROR;
 
     private volatile LogLevel currentLevel = LogLevel.TRACE;
-    private Formatable formatter;
-    private Context context;
+    private LogFormatter formatter;
 
     private PrintStream printer = System.out;
     private boolean ownsPrinter = false;
 
-    public static Loggable getLogger(Formatable formatter, LogOptions options) {
+    public static Loggable getLogger(LogFormatter formatter, LogOptions options) {
         var logger = new Logging();
         logger.formatter = formatter;
         logger.setOptions(options);
-        logger.context = new Context();
-        logger.context.put(THREAD_NAME_KEY, Thread.currentThread().getName());
         return logger;
     }
 
@@ -70,15 +66,24 @@ public class Logging implements Loggable {
 
     @Override
     public void log(LogLevel level, String message, Throwable thrown) {
-        if (level.severity() < this.currentLevel.severity()) {
+        if (level == LogLevel.OFF || level.severity() < this.currentLevel.severity()) {
             return;
         }
         write(LogEvent.create(message, level, System.currentTimeMillis(), thrown));
     }
 
+    @Override
+    public synchronized void close() {
+        if (this.ownsPrinter) {
+            this.printer.close();
+        }
+        this.printer = System.out;
+        this.ownsPrinter = false;
+    }
+
     private synchronized void write(LogEvent logEvent) {
         try {
-            var line = new StringBuilder(this.formatter.getFormattedString(logEvent));
+            var line = new StringBuilder(this.formatter.format(logEvent));
             if (logEvent.getThrown() != null) {
                 line.append(LINE_SEPARATOR).append(logEvent.getThrown().toString().stripTrailing());
             }
@@ -86,9 +91,9 @@ public class Logging implements Loggable {
         } catch (Exception e) {
             reportFormattingFailure(e);
         } finally {
-            // TODO: Consider flushing only on certain levels or based on options and not on
-            // every log call.
-            this.printer.flush();
+            if (logEvent.getLevel().severity() >= FLUSH_THRESHOLD.severity()) {
+                this.printer.flush();
+            }
         }
     }
 
@@ -96,11 +101,14 @@ public class Logging implements Loggable {
         try {
             var event = LogEvent.create("Failed to format log message", LogLevel.ERROR,
                     System.currentTimeMillis(), failure);
-            this.printer.println(this.formatter.getFormattedString(event));
+            this.printer.println(this.formatter.format(event));
         } catch (Exception alsoFailed) {
             this.printer.println(LogLevel.color(LogLevel.ERROR)
                     + "Failed to format log message: " + failure
-                    + LogLevel.color(LogLevel.RESET));
+                    + LogLevel.color(LogLevel.OFF));
         }
+        // The caller only flushes for severe levels, but a dropped line is worth
+        // seeing whatever level provoked it.
+        this.printer.flush();
     }
 }

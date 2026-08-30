@@ -37,11 +37,11 @@ public class LoggingContextTest {
     private static final long TIMEOUT_MS = 5_000;
 
     /** Shared across threads by several tests, so the list must be too. */
-    private static final class Recorder implements Formatable {
+    private static final class Recorder implements LogFormatter {
         private final List<LogEvent> events = Collections.synchronizedList(new ArrayList<>());
 
         @Override
-        public String getFormattedString(LogEvent event, Object... args) {
+        public String format(LogEvent event) {
             events.add(event);
             return String.valueOf(event.getMessage());
         }
@@ -64,17 +64,17 @@ public class LoggingContextTest {
     }
 
     /** Throws on its first call only, so the recovery path runs mid-sequence. */
-    private static final class FailsOnce implements Formatable {
+    private static final class FailsOnce implements LogFormatter {
         private final Recorder delegate = new Recorder();
         private boolean armed = true;
 
         @Override
-        public String getFormattedString(LogEvent event, Object... args) {
+        public String format(LogEvent event) {
             if (armed) {
                 armed = false;
                 throw new IllegalStateException("formatter exploded");
             }
-            return delegate.getFormattedString(event, args);
+            return delegate.format(event);
         }
     }
 
@@ -95,7 +95,7 @@ public class LoggingContextTest {
         System.setOut(realStdout);
     }
 
-    private static Loggable logger(Formatable formatter) {
+    private static Loggable logger(LogFormatter formatter) {
         return Logging.getLogger(formatter, LogOptions.initiateOptions());
     }
 
