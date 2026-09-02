@@ -3,7 +3,13 @@ package org.example;
 public interface Loggable {
     Loggable setOptions(LogOptions options);
 
+    void setFormatter(LogFormatter formatter);
+
     Loggable setCurrentLevel(LogLevel level);
+
+    String getName();
+
+    void close();
 
     void log(LogLevel level, String message, Throwable thrown);
 

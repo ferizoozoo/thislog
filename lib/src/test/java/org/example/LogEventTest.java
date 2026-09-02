@@ -12,6 +12,8 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
 
+import java.util.concurrent.atomic.AtomicInteger;
+
 import org.junit.After;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -49,13 +51,16 @@ public class LogEventTest {
     /** A timestamp far enough in the past to be distinguishable from "now". */
     private static final long AT = 1_700_000_000_000L;
 
+    /** A logger name for events built directly, without going through a logger. */
+    private static final String NAME = "com.acme.Test";
+
     // ---------------------------------------------------------------------
     // The event as a value.
     // ---------------------------------------------------------------------
 
     @Test
     public void anEventCarriesTheMessageLevelAndTimestampItWasCreatedWith() {
-        var logEvent = LogEvent.create("Hello, World!", LogLevel.WARN, AT);
+        var logEvent = LogEvent.create("Hello, World!", LogLevel.WARN, AT, NAME);
 
         assertEquals("Hello, World!", logEvent.getMessage());
         assertEquals(LogLevel.WARN, logEvent.getLevel());
@@ -65,14 +70,14 @@ public class LogEventTest {
     @Test
     public void anEventIsStampedWithTheThreadThatCreatedIt() {
         assertEquals(Thread.currentThread().getName(),
-                LogEvent.create("here", LogLevel.INFO, AT).getThreadName());
+                LogEvent.create("here", LogLevel.INFO, AT, NAME).getThreadName());
     }
 
     @Test
     public void anEventCreatedOnAWorkerCarriesTheWorkersName() throws Exception {
         var built = new AtomicReference<LogEvent>();
 
-        onThreadNamed("worker-1", () -> built.set(LogEvent.create("there", LogLevel.INFO, AT)));
+        onThreadNamed("worker-1", () -> built.set(LogEvent.create("there", LogLevel.INFO, AT, NAME)));
 
         assertEquals("the thread name is read at creation, and cannot be supplied",
                 "worker-1", built.get().getThreadName());
@@ -80,7 +85,7 @@ public class LogEventTest {
 
     @Test
     public void readingAnEventDoesNotChangeIt() {
-        var logEvent = LogEvent.create("read twice", LogLevel.INFO, AT);
+        var logEvent = LogEvent.create("read twice", LogLevel.INFO, AT, NAME);
 
         assertEquals(logEvent.getMessage(), logEvent.getMessage());
         assertEquals(logEvent.getTimestamp(), logEvent.getTimestamp());
@@ -90,7 +95,7 @@ public class LogEventTest {
 
     @Test
     public void theLevelIsTheEnumConstantItself() {
-        var logEvent = LogEvent.create("boom", LogLevel.ERROR, AT);
+        var logEvent = LogEvent.create("boom", LogLevel.ERROR, AT, NAME);
 
         assertSame(LogLevel.ERROR, logEvent.getLevel());
         assertEquals(LogLevel.ERROR.severity(), logEvent.getLevel().severity());
@@ -101,7 +106,7 @@ public class LogEventTest {
         var awkward = "  two  spaces, a tab\t, a newline\n and a trailing space ";
 
         assertEquals("an event stores the message, it does not tidy it",
-                awkward, LogEvent.create(awkward, LogLevel.INFO, AT).getMessage());
+                awkward, LogEvent.create(awkward, LogLevel.INFO, AT, NAME).getMessage());
     }
 
     @Test
@@ -109,19 +114,19 @@ public class LogEventTest {
         var looksLikeAFormat = "100%% done, %s of %d";
 
         assertEquals(looksLikeAFormat,
-                LogEvent.create(looksLikeAFormat, LogLevel.INFO, AT).getMessage());
+                LogEvent.create(looksLikeAFormat, LogLevel.INFO, AT, NAME).getMessage());
     }
 
     @Test
     public void anEmptyMessageIsKept() {
-        assertEquals("", LogEvent.create("", LogLevel.INFO, AT).getMessage());
+        assertEquals("", LogEvent.create("", LogLevel.INFO, AT, NAME).getMessage());
     }
 
     @Test
     public void aNullMessageIsAccepted() {
         // create() validates nothing, so a null message is stored and handed
         // on. aNullMessageDoesNotBringTheLoggerDown covers what happens next.
-        assertNull(LogEvent.create(null, LogLevel.INFO, AT).getMessage());
+        assertNull(LogEvent.create(null, LogLevel.INFO, AT, NAME).getMessage());
     }
 
     @Test
@@ -129,23 +134,23 @@ public class LogEventTest {
         // Reachable only by calling create() directly: the logger always
         // supplies a real level, so this cannot arrive through info() and the
         // rest.
-        assertNull(LogEvent.create("no level", null, AT).getLevel());
+        assertNull(LogEvent.create("no level", null, AT, NAME).getLevel());
     }
 
     @Test
     public void aTimestampOfZeroIsKeptRatherThanTreatedAsAbsent() {
-        assertEquals(0L, LogEvent.create("at the epoch", LogLevel.INFO, 0L).getTimestamp());
+        assertEquals(0L, LogEvent.create("at the epoch", LogLevel.INFO, 0L, NAME).getTimestamp());
     }
 
     @Test
     public void aNegativeTimestampIsKept() {
-        assertEquals(-1L, LogEvent.create("before the epoch", LogLevel.INFO, -1L).getTimestamp());
+        assertEquals(-1L, LogEvent.create("before the epoch", LogLevel.INFO, -1L, NAME).getTimestamp());
     }
 
     @Test
     public void theLargestTimestampIsKept() {
         assertEquals(Long.MAX_VALUE,
-                LogEvent.create("far future", LogLevel.INFO, Long.MAX_VALUE).getTimestamp());
+                LogEvent.create("far future", LogLevel.INFO, Long.MAX_VALUE, NAME).getTimestamp());
     }
 
     // ---------------------------------------------------------------------
@@ -181,8 +186,8 @@ public class LogEventTest {
 
     @Test
     public void twoEventsCreatedFromTheSameValuesAreSeparateObjects() {
-        var one = LogEvent.create("same", LogLevel.INFO, AT);
-        var other = LogEvent.create("same", LogLevel.INFO, AT);
+        var one = LogEvent.create("same", LogLevel.INFO, AT, NAME);
+        var other = LogEvent.create("same", LogLevel.INFO, AT, NAME);
 
         // Characterises the design as it stands: LogEvent is a plain class
         // with no equals/hashCode, so two events matching field for field are
@@ -236,6 +241,7 @@ public class LogEventTest {
 
     @Before
     public void redirectStandardOut() {
+        LoggingFactory.clear();
         stdout = new ByteArrayOutputStream();
         System.setOut(new PrintStream(stdout, true, StandardCharsets.UTF_8));
     }
@@ -250,7 +256,7 @@ public class LogEventTest {
     }
 
     private static Loggable logger(LogFormatter formatter) {
-        return Logging.getLogger(formatter, LogOptions.initiateOptions());
+        return LoggingFactory.get(nextLoggerName(), formatter, LogOptions.initiateOptions());
     }
 
     /** Runs {@code work} to completion on a fresh thread with the given name. */
@@ -391,5 +397,12 @@ public class LogEventTest {
 
         assertEquals("a null message should render as null rather than throw",
                 "null" + NL, stdoutText());
+    }
+
+    private static final AtomicInteger LOGGER_SEQ = new AtomicInteger();
+
+    /** Each test gets its own logger name, so the registry never crosses tests. */
+    private static String nextLoggerName() {
+        return "test.%s".formatted(LOGGER_SEQ.incrementAndGet());
     }
 }

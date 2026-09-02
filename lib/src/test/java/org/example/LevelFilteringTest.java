@@ -11,6 +11,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 
 import org.junit.After;
+import org.junit.Before;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
@@ -64,10 +65,11 @@ public class LevelFilteringTest {
     private Run run(Consumer<Loggable> action) throws Exception {
         File sink = tempFolder.newFile();
         var recorder = new Recorder();
-        var log = Logging.getLogger(recorder, LogOptions.initiateOptions()
+        var log = LoggingFactory.get(nextLoggerName(), recorder, LogOptions.initiateOptions()
                 .setDestination(LogDestination.file(sink.getAbsolutePath())));
 
         action.accept(log);
+        log.close();
 
         return new Run(recorder.levels,
             Files.readString(sink.toPath(), StandardCharsets.UTF_8).lines().toList());
@@ -355,8 +357,8 @@ public class LevelFilteringTest {
         var options = LogOptions.initiateOptions()
                 .setDestination(LogDestination.file(sink.getAbsolutePath()));
 
-        var quiet = Logging.getLogger(quietRecorder, options);
-        var loud = Logging.getLogger(loudRecorder, options);
+        var quiet = LoggingFactory.get(nextLoggerName(), quietRecorder, options);
+        var loud = LoggingFactory.get(nextLoggerName(), loudRecorder, options);
 
         quiet.setCurrentLevel(LogLevel.ERROR);
         quiet.info("dropped");
@@ -426,6 +428,11 @@ public class LevelFilteringTest {
 
     private final PrintStream realStdout = System.out;
 
+    @Before
+    public void clearRegistry() {
+        LoggingFactory.clear();
+    }
+
     @After
     public void restoreStandardOut() {
         System.setOut(realStdout);
@@ -434,7 +441,7 @@ public class LevelFilteringTest {
     /** A logger on a counting stdout. The stream must be in place first. */
     private static Loggable loggerOn(CountingStream stream, Recorder recorder) {
         System.setOut(stream);
-        return Logging.getLogger(recorder, LogOptions.initiateOptions());
+        return LoggingFactory.get(nextLoggerName(), recorder, LogOptions.initiateOptions());
     }
 
     @Test
@@ -481,5 +488,12 @@ public class LevelFilteringTest {
         log.info("below the threshold set elsewhere");
 
         assertEquals(List.of(), recorder.levels);
+    }
+
+    private static final AtomicInteger LOGGER_SEQ = new AtomicInteger();
+
+    /** Each test gets its own logger name, so the registry never crosses tests. */
+    private static String nextLoggerName() {
+        return "test.%s".formatted(LOGGER_SEQ.incrementAndGet());
     }
 }

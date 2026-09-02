@@ -9,6 +9,8 @@ import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicReference;
 
+import java.util.concurrent.atomic.AtomicInteger;
+
 import org.junit.After;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -87,6 +89,7 @@ public class LoggingContextTest {
 
     @Before
     public void silenceStandardOut() {
+        LoggingFactory.clear();
         System.setOut(new PrintStream(new ByteArrayOutputStream(), true, StandardCharsets.UTF_8));
     }
 
@@ -96,7 +99,7 @@ public class LoggingContextTest {
     }
 
     private static Loggable logger(LogFormatter formatter) {
-        return Logging.getLogger(formatter, LogOptions.initiateOptions());
+        return LoggingFactory.get(nextLoggerName(), formatter, LogOptions.initiateOptions());
     }
 
     /** Runs {@code work} to completion on a fresh thread with the given name. */
@@ -330,5 +333,12 @@ public class LoggingContextTest {
             Thread.currentThread().interrupt();
             throw new IllegalStateException(e);
         }
+    }
+
+    private static final AtomicInteger LOGGER_SEQ = new AtomicInteger();
+
+    /** Each test gets its own logger name, so the registry never crosses tests. */
+    private static String nextLoggerName() {
+        return "test.%s".formatted(LOGGER_SEQ.incrementAndGet());
     }
 }

@@ -33,7 +33,7 @@ public enum LogLevel {
                 BLUE;
             case FATAL ->
                 RED;
-            default ->
+            case OFF ->
                 RESET;
         };
     }

@@ -54,3 +54,7 @@ tasks.register<JavaExec>("runDemo") {
     mainClass = "org.example.Demo"
     classpath = sourceSets["demo"].runtimeClasspath
 }
+
+tasks.withType<JavaCompile>().configureEach {
+    options.compilerArgs.addAll(listOf("-Xlint:all", "-Xlint:-processing"))
+}

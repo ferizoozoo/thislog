@@ -9,10 +9,11 @@ import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
+
+import java.util.concurrent.atomic.AtomicInteger;
 
 import org.junit.After;
 import static org.junit.Assert.assertEquals;
@@ -39,6 +40,9 @@ public class LoggingTest {
 
     /** Fixed timestamp for events built directly, to test PatternFormatter on its own. */
     private static final long AT = 1_700_000_000_000L;
+
+    /** A logger name for events built directly, without going through a logger. */
+    private static final String NAME = "com.acme.Test";
 
     @Rule
     public TemporaryFolder tempFolder = new TemporaryFolder();
@@ -118,6 +122,7 @@ public class LoggingTest {
 
     @Before
     public void redirectStandardStreams() {
+        LoggingFactory.clear();
         stdout = new ByteArrayOutputStream();
         stderr = new ByteArrayOutputStream();
         System.setOut(new PrintStream(stdout, true, StandardCharsets.UTF_8));
@@ -146,7 +151,7 @@ public class LoggingTest {
      * Logging only publishes the two-argument factory, so tests go through this.
      */
     private static Loggable logger(LogFormatter formatter) {
-        return Logging.getLogger(formatter, LogOptions.initiateOptions());
+        return LoggingFactory.get(nextLoggerName(), formatter, LogOptions.initiateOptions());
     }
 
     private static LogOptions with(LogFormatter formatter) {
@@ -592,7 +597,8 @@ public class LoggingTest {
         File sink = tempFolder.newFile();
         var formatter = new RecordingFormatter();
 
-        var log = Logging.getLogger(formatter, to(LogDestination.file(sink.getAbsolutePath())));
+        var log = LoggingFactory.get(nextLoggerName(), formatter,
+                to(LogDestination.file(sink.getAbsolutePath())));
         log.info("into the file");
         log.setOptions(to(LogDestination.STDOUT)).info("out to stdout");
 
@@ -988,14 +994,14 @@ public class LoggingTest {
     public void theShippedFormatterFillsItsConversionWithTheMessage() {
         assertEquals("[Careful]",
                 new PatternFormatter("[%s]")
-                        .format(LogEvent.create("Careful", LogLevel.WARN, AT)));
+                        .format(LogEvent.create("Careful", LogLevel.WARN, AT, NAME)));
     }
 
     @Test
     public void theShippedFormatterHonoursTheFormatItWasBuiltWith() {
         assertEquals("<<Careful>>",
                 new PatternFormatter("<<%s>>")
-                        .format(LogEvent.create("Careful", LogLevel.WARN, AT)));
+                        .format(LogEvent.create("Careful", LogLevel.WARN, AT, NAME)));
     }
 
     @Test
@@ -1022,14 +1028,14 @@ public class LoggingTest {
     public void theColouredWrapperKeepsWhateverLayoutItWraps() {
         assertEquals(YELLOW + "[Careful]" + RESET,
                 LogFormatter.colored(new PatternFormatter("[%s]"))
-                        .format(LogEvent.create("Careful", LogLevel.WARN, AT)));
+                        .format(LogEvent.create("Careful", LogLevel.WARN, AT, NAME)));
     }
 
     @Test
     public void theDefaultFormatRendersTheMessageAndNothingElse() {
         assertEquals("Hello, World!",
                 new PatternFormatter(PatternFormatter.DEFAULT_PATTERN)
-                        .format(LogEvent.create("Hello, World!", LogLevel.INFO, AT)));
+                        .format(LogEvent.create("Hello, World!", LogLevel.INFO, AT, NAME)));
     }
 
     @Test
@@ -1044,8 +1050,11 @@ public class LoggingTest {
         // Colour belongs to the destination, so an uncoloured formatter is what
         // keeps escape sequences out of a file someone will later grep.
         File sink = tempFolder.newFile();
-        Logging.getLogger(new PatternFormatter(PatternFormatter.DEFAULT_PATTERN),
-                to(LogDestination.file(sink.getAbsolutePath()))).info("user signed in");
+        var log = LoggingFactory.get(nextLoggerName(),
+                new PatternFormatter(PatternFormatter.DEFAULT_PATTERN),
+                to(LogDestination.file(sink.getAbsolutePath())));
+        log.info("user signed in");
+        log.close();
 
         var written = Files.readString(sink.toPath());
         assertFalse("no escape sequences belong in a file, got: " + written,
@@ -1133,7 +1142,7 @@ public class LoggingTest {
     @Test
     public void concurrentLoggingWritesEveryLineWholeAndExactlyOnce() throws Exception {
         File sink = tempFolder.newFile();
-        var log = Logging.getLogger(new PatternFormatter("%s"),
+        var log = LoggingFactory.get(nextLoggerName(), new PatternFormatter("%s"),
                 to(LogDestination.file(sink.getAbsolutePath())));
 
         int threadCount = 4;
@@ -1186,4 +1195,10 @@ public class LoggingTest {
         }
     }
 
+    private static final AtomicInteger LOGGER_SEQ = new AtomicInteger();
+
+    /** Each test gets its own logger name, so the registry never crosses tests. */
+    private static String nextLoggerName() {
+        return "test.%s".formatted(LOGGER_SEQ.incrementAndGet());
+    }
 }
