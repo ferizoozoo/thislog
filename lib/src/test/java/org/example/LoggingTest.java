@@ -703,10 +703,10 @@ public class LoggingTest {
 
     @Test
     public void swappingFormattersChangesTheShapeOfTheLinesThatFollow() {
-        var log = logger(new PatternFormatter("[%s]"));
+        var log = logger(PatternFormatter.create("[%s]"));
 
         log.info("first");
-        log.setOptions(with(new PatternFormatter("<%s>")));
+        log.setOptions(with(PatternFormatter.create("<%s>")));
         log.info("second");
 
         assertEquals("the swap must not reach back over what was already written",
@@ -893,7 +893,7 @@ public class LoggingTest {
         var cause = new ArrayIndexOutOfBoundsException("Index 3 out of bounds for length 0");
         var wrapper = new IllegalStateException("could not load order 4711", cause);
 
-        logger(new PatternFormatter("%s")).error("load failed", wrapper);
+        logger(PatternFormatter.create("%s")).error("load failed", wrapper);
 
         assertEquals("load failed" + NL
                 + "java.lang.IllegalStateException: could not load order 4711" + NL
@@ -904,7 +904,7 @@ public class LoggingTest {
 
     @Test
     public void aCauselessExceptionAddsNoCausedByLine() {
-        logger(new PatternFormatter("%s")).error("load failed",
+        logger(PatternFormatter.create("%s")).error("load failed",
                 new IllegalStateException("could not load order 4711"));
 
         assertEquals("load failed" + NL
@@ -918,7 +918,7 @@ public class LoggingTest {
         var second = new IllegalStateException("second", first);
         first.initCause(second);
 
-        logger(new PatternFormatter("%s")).error("tangled", second);
+        logger(PatternFormatter.create("%s")).error("tangled", second);
 
         assertEquals("tangled" + NL
                 + "java.lang.IllegalStateException: second" + NL
@@ -1027,20 +1027,20 @@ public class LoggingTest {
     @Test
     public void theShippedFormatterFillsItsConversionWithTheMessage() {
         assertEquals("[Careful]",
-                new PatternFormatter("[%s]")
+                PatternFormatter.create("[%s]")
                         .format(LogEvent.create("Careful", LogLevel.WARN, AT, NAME)));
     }
 
     @Test
     public void theShippedFormatterHonoursTheFormatItWasBuiltWith() {
         assertEquals("<<Careful>>",
-                new PatternFormatter("<<%s>>")
+                PatternFormatter.create("<<%s>>")
                         .format(LogEvent.create("Careful", LogLevel.WARN, AT, NAME)));
     }
 
     @Test
     public void theShippedFormatterAddsNoColourOfItsOwn() {
-        var log = logger(new PatternFormatter("%s"));
+        var log = logger(PatternFormatter.create("%s"));
 
         log.warn("careful");
         log.error("boom");
@@ -1050,7 +1050,7 @@ public class LoggingTest {
 
     @Test
     public void theColouredWrapperColoursByTheLevelTheEventCarries() {
-        var log = logger(LogFormatter.colored(new PatternFormatter("%s")));
+        var log = logger(LogFormatter.colored(PatternFormatter.create("%s")));
 
         log.warn("careful");
         log.error("boom");
@@ -1061,20 +1061,20 @@ public class LoggingTest {
     @Test
     public void theColouredWrapperKeepsWhateverLayoutItWraps() {
         assertEquals(YELLOW + "[Careful]" + RESET,
-                LogFormatter.colored(new PatternFormatter("[%s]"))
+                LogFormatter.colored(PatternFormatter.create("[%s]"))
                         .format(LogEvent.create("Careful", LogLevel.WARN, AT, NAME)));
     }
 
     @Test
     public void theDefaultFormatRendersTheMessageAndNothingElse() {
         assertEquals("Hello, World!",
-                new PatternFormatter(PatternFormatter.DEFAULT_PATTERN)
+                PatternFormatter.create(PatternFormatter.DEFAULT_PATTERN)
                         .format(LogEvent.create("Hello, World!", LogLevel.INFO, AT, NAME)));
     }
 
     @Test
     public void theDefaultFormatCarriesAMessageAllTheWayToTheDestination() {
-        logger(new PatternFormatter(PatternFormatter.DEFAULT_PATTERN)).warn("Careful");
+        logger(PatternFormatter.create(PatternFormatter.DEFAULT_PATTERN)).warn("Careful");
 
         assertEquals("Careful" + NL, stdoutText());
     }
@@ -1085,7 +1085,7 @@ public class LoggingTest {
         // keeps escape sequences out of a file someone will later grep.
         File sink = tempFolder.newFile();
         var log = LoggingFactory.get(nextLoggerName(),
-                new PatternFormatter(PatternFormatter.DEFAULT_PATTERN),
+                PatternFormatter.create(PatternFormatter.DEFAULT_PATTERN),
                 to(LogDestination.file(sink.getAbsolutePath())));
         log.info("user signed in");
         log.close();
@@ -1098,7 +1098,7 @@ public class LoggingTest {
 
     @Test
     public void aFormatterBuiltWithoutAPatternIsRejectedAtTheConstructor() {
-        assertThrows(NullPointerException.class, () -> new PatternFormatter(null));
+        assertThrows(NullPointerException.class, () -> PatternFormatter.create(null));
     }
 
     @Test
@@ -1106,7 +1106,7 @@ public class LoggingTest {
         // The formatter is handed the message and nothing else, so a format
         // expecting a second argument has nothing to fill it with and comes out
         // through the recovery path rather than reaching the caller.
-        logger(new PatternFormatter("%s %2$s")).info("needs a second argument");
+        logger(PatternFormatter.create("%s %2$s")).info("needs a second argument");
 
         assertTrue("expected the failure to be reported, got: " + stdoutText(),
                 stdoutText().contains("Failed to format log message:"));
@@ -1114,14 +1114,14 @@ public class LoggingTest {
 
     @Test
     public void theShippedFormatterWritesItsLineToTheDestination() {
-        logger(new PatternFormatter("%s")).info("Hello, World!");
+        logger(PatternFormatter.create("%s")).info("Hello, World!");
 
         assertEquals("Hello, World!" + NL, stdoutText());
     }
 
     @Test
     public void theShippedFormatterEmitsOneLinePerCall() {
-        var log = logger(new PatternFormatter("%s"));
+        var log = logger(PatternFormatter.create("%s"));
 
         log.info("first");
         log.warn("second");
@@ -1134,7 +1134,7 @@ public class LoggingTest {
     public void theShippedFormatterLeavesTheTimestampAndThreadNameToOtherLayouts() {
         // PatternFormatter spends only the message. The event still carries the rest,
         // so a LogFormatter that wants them can reach for them.
-        logger(new PatternFormatter("%s")).info("terse");
+        logger(PatternFormatter.create("%s")).info("terse");
 
         assertEquals("terse" + NL, stdoutText());
     }
@@ -1176,7 +1176,7 @@ public class LoggingTest {
     @Test
     public void concurrentLoggingWritesEveryLineWholeAndExactlyOnce() throws Exception {
         File sink = tempFolder.newFile();
-        var log = LoggingFactory.get(nextLoggerName(), new PatternFormatter("%s"),
+        var log = LoggingFactory.get(nextLoggerName(), PatternFormatter.create("%s"),
                 to(LogDestination.file(sink.getAbsolutePath())));
 
         int threadCount = 4;

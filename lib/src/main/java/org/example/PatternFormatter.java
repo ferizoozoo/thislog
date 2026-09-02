@@ -7,8 +7,12 @@ public class PatternFormatter implements LogFormatter {
 
     private final String pattern;
 
-    public PatternFormatter(String pattern) {
+    private PatternFormatter(String pattern) {
         this.pattern = Objects.requireNonNull(pattern, "pattern");
+    }
+
+    public static PatternFormatter create(String pattern) {
+        return new PatternFormatter(pattern);
     }
 
     @Override

@@ -30,7 +30,7 @@ public final class Demo {
     private static void plainIsTheDefault() {
         heading("1. The default pattern renders the message and nothing else");
         var log = LoggingFactory.get("com.acme.Bootstrap",
-                new PatternFormatter(PatternFormatter.DEFAULT_PATTERN), LogOptions.initiateOptions());
+                PatternFormatter.create(PatternFormatter.DEFAULT_PATTERN), LogOptions.initiateOptions());
         log.info("server started on port 8080");
         log.warn("cache is 91% full");
     }
@@ -38,7 +38,7 @@ public final class Demo {
     private static void colourIsOptedInto() {
         heading("2. LogFormatter.colored wraps any layout for a terminal");
         var log = LoggingFactory.get("com.acme.checkout.CheckoutFlow",
-                LogFormatter.colored(new PatternFormatter("%s")), LogOptions.initiateOptions());
+                LogFormatter.colored(PatternFormatter.create("%s")), LogOptions.initiateOptions());
         log.trace("entering checkout flow");
         log.debug("resolved 3 candidate routes");
         log.info("payment authorised");
@@ -65,7 +65,7 @@ public final class Demo {
     private static void theLevelDecidesWhatSurvives() {
         heading("4. setCurrentLevel(WARN) suppresses everything below it");
         var log = LoggingFactory.get("com.acme.inventory.StockMonitor",
-                LogFormatter.colored(new PatternFormatter("%s")), LogOptions.initiateOptions());
+                LogFormatter.colored(PatternFormatter.create("%s")), LogOptions.initiateOptions());
         log.setCurrentLevel(LogLevel.WARN);
 
         log.trace("you should not see this");
@@ -80,16 +80,17 @@ public final class Demo {
     private static void anExceptionRidesUnderItsLine() {
         heading("5. A throwable and its causes ride under the line");
         var log = LoggingFactory.get("com.acme.billing.Pricing",
-                LogFormatter.colored(new PatternFormatter("%s")), LogOptions.initiateOptions());
+                LogFormatter.colored(PatternFormatter.create("%s")), LogOptions.initiateOptions());
         var cause = new IllegalArgumentException("negative quantity: -3");
         log.error("could not price the basket", new IllegalStateException("pricing failed", cause));
     }
 
     private static void aFileGetsCleanText() throws Exception {
         heading("6. A file destination gets no escape sequences");
+
         Path sink = Files.createTempFile("thislog-demo", ".log");
         var log = LoggingFactory.get("com.acme.audit.AuditTrail",
-                new PatternFormatter(PatternFormatter.DEFAULT_PATTERN),
+                PatternFormatter.create(PatternFormatter.DEFAULT_PATTERN),
                 LogOptions.initiateOptions().setDestination(LogDestination.file(sink.toString())));
         log.info("user signed in");
         log.error("checkout failed");
@@ -111,7 +112,7 @@ public final class Demo {
 
         // Somewhere else entirely, the same name is configured.
         LoggingFactory.get("com.acme.orders.OrderRouter",
-                LogFormatter.colored(new PatternFormatter("[orders] %s")),
+                LogFormatter.colored(PatternFormatter.create("[orders] %s")),
                 LogOptions.initiateOptions());
 
         // The handle taken before that already has the new configuration.

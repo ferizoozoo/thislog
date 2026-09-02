@@ -17,12 +17,16 @@ public class Logging implements Loggable, AutoCloseable {
     private final String name;
 
     private volatile LogLevel currentLevel = LogLevel.TRACE;
-    private LogFormatter formatter = new PatternFormatter(PatternFormatter.DEFAULT_PATTERN);
+    private LogFormatter formatter;
 
     private PrintStream printer = System.out;
     private boolean ownsPrinter = false;
 
     public Logging(String name) {
+        var options = LogOptions.fromEnvironment();
+        this.formatter = options.getFormatter();
+        var dest = options.getDestination();
+        this.printer = Utilities.LogDestinationToPrintStream(dest);
         this.name = Objects.requireNonNull(name, "name");
     }
 

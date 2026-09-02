@@ -386,14 +386,14 @@ public class LogEventTest {
 
     @Test
     public void theShippedFormatterReadsTheMessageOffTheEvent() {
-        logger(new PatternFormatter(PatternFormatter.DEFAULT_PATTERN)).info("Hello, World!");
+        logger(PatternFormatter.create(PatternFormatter.DEFAULT_PATTERN)).info("Hello, World!");
 
         assertEquals("Hello, World!" + NL, stdoutText());
     }
 
     @Test
     public void aNullMessageDoesNotBringTheLoggerDown() {
-        logger(new PatternFormatter("%s")).info(null);
+        logger(PatternFormatter.create("%s")).info(null);
 
         assertEquals("a null message should render as null rather than throw",
                 "null" + NL, stdoutText());
