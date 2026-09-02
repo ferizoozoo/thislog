@@ -1,11 +1,11 @@
 package org.example;
 
 public interface Loggable {
-    Loggable setOptions(LogOptions options);
+    void setOptions(LogOptions options);
 
     void setFormatter(LogFormatter formatter);
 
-    Loggable setCurrentLevel(LogLevel level);
+    void setCurrentLevel(LogLevel level);
 
     String getName();
 

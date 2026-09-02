@@ -32,9 +32,8 @@ public class Logging implements Loggable, AutoCloseable {
     }
 
     @Override
-    public synchronized Loggable setCurrentLevel(LogLevel level) {
+    public synchronized void setCurrentLevel(LogLevel level) {
         this.currentLevel = level;
-        return this;
     }
 
     @Override
@@ -43,7 +42,7 @@ public class Logging implements Loggable, AutoCloseable {
     }
 
     @Override
-    public synchronized Loggable setOptions(LogOptions options) {
+    public synchronized void setOptions(LogOptions options) {
         var newFormatter = options.getFormatter();
         if (newFormatter != null) {
             this.formatter = newFormatter;
@@ -51,7 +50,7 @@ public class Logging implements Loggable, AutoCloseable {
 
         var destination = options.getDestination();
         if (destination == null) {
-            return this;
+            return;
         }
         try {
             PrintStream next = switch (destination) {
@@ -74,8 +73,6 @@ public class Logging implements Loggable, AutoCloseable {
         } catch (Exception e) {
             this.printer.println("Failed to set log destination: " + e.getMessage());
         }
-
-        return this;
     }
 
     @Override
