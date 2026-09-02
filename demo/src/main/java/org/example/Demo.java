@@ -106,18 +106,18 @@ public final class Demo {
     private static void oneNameIsOneLogger() {
         heading("7. A name resolves to one logger, wherever it is asked for");
 
-        // Somewhere in startup, before anything is configured.
-        var early = LoggingFactory.get("com.acme.checkout.CheckoutFlow");
+        // A name this demo has not touched, so nothing is configured yet.
+        var early = LoggingFactory.get("com.acme.orders.OrderRouter");
 
-        // Somewhere else entirely, configuring by name.
-        LoggingFactory.get("com.acme.checkout.CheckoutFlow",
-                LogFormatter.colored(new PatternFormatter("[checkout] %s")),
+        // Somewhere else entirely, the same name is configured.
+        LoggingFactory.get("com.acme.orders.OrderRouter",
+                LogFormatter.colored(new PatternFormatter("[orders] %s")),
                 LogOptions.initiateOptions());
 
-        // The handle taken first already has the new configuration.
+        // The handle taken before that already has the new configuration.
         early.info("configured from somewhere else");
         System.out.println("   same instance: "
-                + (early == LoggingFactory.get("com.acme.checkout.CheckoutFlow")));
+                + (early == LoggingFactory.get("com.acme.orders.OrderRouter")));
     }
 
     private static void heading(String title) {

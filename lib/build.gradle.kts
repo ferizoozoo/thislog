@@ -39,21 +39,6 @@ java {
     }
 }
 
-// A runnable showcase for eyeballing the output. It lives in its own source set
-// so it is not published in the library jar.
-sourceSets {
-    create("demo") {
-        compileClasspath += sourceSets.main.get().output
-        runtimeClasspath += sourceSets.main.get().output
-    }
-}
-
-tasks.register<JavaExec>("runDemo") {
-    group = "application"
-    description = "Prints one of every rendering so the visuals can be checked."
-    mainClass = "org.example.Demo"
-    classpath = sourceSets["demo"].runtimeClasspath
-}
 
 tasks.withType<JavaCompile>().configureEach {
     options.compilerArgs.addAll(listOf("-Xlint:all", "-Xlint:-processing"))

@@ -29,10 +29,13 @@ public class LoggingFactoryTest {
 
     private final PrintStream realStdout = System.out;
 
+    private ByteArrayOutputStream written;
+
     @Before
     public void startClean() {
         LoggingFactory.clear();
-        System.setOut(new PrintStream(new ByteArrayOutputStream(), true, StandardCharsets.UTF_8));
+        written = new ByteArrayOutputStream();
+        System.setOut(new PrintStream(written, true, StandardCharsets.UTF_8));
     }
 
     @After
@@ -112,14 +115,6 @@ public class LoggingFactoryTest {
     }
 
     @Test
-    public void theFluentSettersReturnTheSameLogger() {
-        var log = LoggingFactory.get("com.acme.db");
-
-        assertSame(log, log.setCurrentLevel(LogLevel.WARN));
-        assertSame(log, log.setOptions(LogOptions.initiateOptions()));
-    }
-
-    @Test
     public void clearingForgetsEveryName() {
         LoggingFactory.get("com.acme.db");
         assertTrue(LoggingFactory.has("com.acme.db"));
@@ -187,6 +182,15 @@ public class LoggingFactoryTest {
 
         assertEquals("com.acme.db", dbRecorder.events.get(0).getLoggerName());
         assertEquals("com.acme.web", webRecorder.events.get(0).getLoggerName());
+    }
+
+    @Test
+    public void aLoggerTakenBeforeAnyConfigurationStillWrites() {
+        var log = LoggingFactory.get("com.acme.unconfigured");
+
+        log.info("no formatter was ever set");
+
+        assertEquals("no formatter was ever set" + System.lineSeparator(), written.toString());
     }
 
     /** Keeps the events that reached formatting. */

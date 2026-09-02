@@ -17,7 +17,7 @@ public class Logging implements Loggable, AutoCloseable {
     private final String name;
 
     private volatile LogLevel currentLevel = LogLevel.TRACE;
-    private LogFormatter formatter;
+    private LogFormatter formatter = new PatternFormatter(PatternFormatter.DEFAULT_PATTERN);
 
     private PrintStream printer = System.out;
     private boolean ownsPrinter = false;

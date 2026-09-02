@@ -12,3 +12,4 @@ plugins {
 
 rootProject.name = "thislog"
 include("lib")
+include("demo")
