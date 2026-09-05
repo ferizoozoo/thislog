@@ -1,4 +1,4 @@
-package org.example;
+package io.github.ferizoozoo.thislog;
 
 public interface Loggable {
     void setOptions(LogOptions options);

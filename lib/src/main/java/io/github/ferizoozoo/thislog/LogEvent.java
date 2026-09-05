@@ -1,4 +1,4 @@
-package org.example;
+package io.github.ferizoozoo.thislog;
 
 public class LogEvent {
     private final String message;

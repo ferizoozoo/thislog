@@ -1,4 +1,4 @@
-package org.example;
+package io.github.ferizoozoo.thislog;
 
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;

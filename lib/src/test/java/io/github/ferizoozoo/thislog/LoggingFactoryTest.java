@@ -1,4 +1,4 @@
-package org.example;
+package io.github.ferizoozoo.thislog;
 
 import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
@@ -57,7 +57,7 @@ public class LoggingFactoryTest {
     @Test
     public void aClassNamesItsLoggerAfterItself() {
         assertSame(LoggingFactory.get(LoggingFactoryTest.class),
-                LoggingFactory.get("org.example.LoggingFactoryTest"));
+                LoggingFactory.get("io.github.ferizoozoo.thislog.LoggingFactoryTest"));
     }
 
     @Test
@@ -157,7 +157,7 @@ public class LoggingFactoryTest {
     @Test
     public void aLoggerKnowsTheNameItWasRegisteredUnder() {
         assertEquals("com.acme.db", LoggingFactory.get("com.acme.db").getName());
-        assertEquals("org.example.LoggingFactoryTest",
+        assertEquals("io.github.ferizoozoo.thislog.LoggingFactoryTest",
                 LoggingFactory.get(LoggingFactoryTest.class).getName());
     }
 

@@ -1,4 +1,11 @@
-package org.example;
+package io.github.ferizoozoo.thislog.demo;
+
+import io.github.ferizoozoo.thislog.LogFormatter;
+import io.github.ferizoozoo.thislog.LogLevel;
+import io.github.ferizoozoo.thislog.LogOptions;
+import io.github.ferizoozoo.thislog.LogDestination;
+import io.github.ferizoozoo.thislog.LoggingFactory;
+import io.github.ferizoozoo.thislog.PatternFormatter;
 
 import java.nio.file.Files;
 import java.nio.file.Path;

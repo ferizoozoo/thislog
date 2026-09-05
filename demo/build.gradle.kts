@@ -11,7 +11,7 @@ dependencies {
 }
 
 application {
-    mainClass = "org.example.Demo"
+    mainClass = "io.github.ferizoozoo.thislog.demo.Demo"
 }
 
 java {

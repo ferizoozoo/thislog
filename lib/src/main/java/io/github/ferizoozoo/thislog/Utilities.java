@@ -1,4 +1,4 @@
-package org.example;
+package io.github.ferizoozoo.thislog;
 
 import java.io.BufferedOutputStream;
 import java.io.FileNotFoundException;
@@ -6,7 +6,11 @@ import java.io.FileOutputStream;
 import java.io.PrintStream;
 import java.io.UncheckedIOException;
 
-public class Utilities {
+public final class Utilities {
+
+    private Utilities() {
+    }
+
     public static PrintStream LogDestinationToPrintStream(LogDestination destination) {
         return switch (destination) {
             case LogDestination.Stdout ignored ->

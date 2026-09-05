@@ -1,4 +1,4 @@
-package org.example;
+package io.github.ferizoozoo.thislog;
 
 import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;

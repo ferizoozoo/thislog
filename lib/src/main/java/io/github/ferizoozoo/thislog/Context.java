@@ -1,9 +1,12 @@
-package org.example;
+package io.github.ferizoozoo.thislog;
 
 import java.util.HashMap;
 
 public class Context {
     private final ThreadLocal<HashMap<String, Object>> context = ThreadLocal.withInitial(HashMap::new);
+
+    public Context() {
+    }
 
     public void put(String key, Object value) {
         this.context.get().put(key, value);
