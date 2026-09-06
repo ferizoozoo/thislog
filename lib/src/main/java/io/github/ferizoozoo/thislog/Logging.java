@@ -5,6 +5,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.Collections;
 import java.util.IdentityHashMap;
 import java.util.Objects;
+import java.util.function.Supplier;
 
 public class Logging implements Loggable {
 
@@ -19,16 +20,21 @@ public class Logging implements Loggable {
 
     private PrintStream printer;
     private boolean ownsPrinter;
+    private boolean reportedWriteFailure;
 
     public Logging(String name) {
+        this(name, LogOptions::fromEnvironment);
+    }
+
+    Logging(String name, Supplier<LogOptions> options) {
         this.name = Objects.requireNonNull(name, "name");
 
         this.setPrinter(System.out, false);
         this.formatter = PatternFormatter.create(PatternFormatter.DEFAULT_PATTERN);
         try {
-            var options = LogOptions.fromEnvironment();
-            this.formatter = options.getFormatter();
-            var dest = options.getDestination();
+            var resolved = options.get();
+            this.formatter = resolved.getFormatter();
+            var dest = resolved.getDestination();
             this.setPrinter(Utilities.LogDestinationToPrintStream(dest),
                     dest instanceof LogDestination.LogFile);
         } catch (RuntimeException e) {
@@ -40,6 +46,7 @@ public class Logging implements Loggable {
     private void setPrinter(PrintStream printer, boolean ownsPrinter) {
         this.printer = printer;
         this.ownsPrinter = ownsPrinter;
+        this.reportedWriteFailure = false;
     }
 
     public static Logging create(String name) {
@@ -98,8 +105,7 @@ public class Logging implements Loggable {
         if (this.ownsPrinter) {
             this.printer.close();
         }
-        this.printer = System.out;
-        this.ownsPrinter = false;
+        this.setPrinter(System.out, false);
     }
 
     private synchronized void write(LogEvent logEvent) {
@@ -113,8 +119,25 @@ public class Logging implements Loggable {
             reportFormattingFailure(e);
         } finally {
             if (logEvent.getLevel().severity() >= FLUSH_THRESHOLD.severity()) {
-                this.printer.flush();
+                flushAndReportWriteFailure();
             }
+        }
+    }
+
+    /**
+     * Flushes, then says something if the destination has been quietly refusing
+     * writes: a PrintStream never throws, it records the failure and carries on,
+     * so a full disk would otherwise lose lines in silence.
+     *
+     * <p>checkError() flushes before it reports, so this is the flush -- calling
+     * both would flush twice. That is also why the check happens only where a
+     * flush was going to happen anyway, rather than on every line.
+     */
+    private void flushAndReportWriteFailure() {
+        if (this.printer.checkError() && !this.reportedWriteFailure) {
+            this.reportedWriteFailure = true;
+            System.err.println("thislog: the destination for '" + this.name
+                    + "' is failing; log output may be lost");
         }
     }
 
