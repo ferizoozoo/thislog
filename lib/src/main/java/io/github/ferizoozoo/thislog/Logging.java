@@ -1,14 +1,12 @@
 package io.github.ferizoozoo.thislog;
 
-import java.io.BufferedOutputStream;
-import java.io.FileOutputStream;
 import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
 import java.util.Collections;
 import java.util.IdentityHashMap;
 import java.util.Objects;
 
-public class Logging implements Loggable, AutoCloseable {
+public class Logging implements Loggable {
 
     private static final String LINE_SEPARATOR = System.lineSeparator();
 
@@ -19,15 +17,33 @@ public class Logging implements Loggable, AutoCloseable {
     private volatile LogLevel currentLevel = LogLevel.TRACE;
     private LogFormatter formatter;
 
-    private PrintStream printer = System.out;
-    private boolean ownsPrinter = false;
+    private PrintStream printer;
+    private boolean ownsPrinter;
 
     public Logging(String name) {
-        var options = LogOptions.fromEnvironment();
-        this.formatter = options.getFormatter();
-        var dest = options.getDestination();
-        this.printer = Utilities.LogDestinationToPrintStream(dest);
         this.name = Objects.requireNonNull(name, "name");
+
+        this.setPrinter(System.out, false);
+        this.formatter = PatternFormatter.create(PatternFormatter.DEFAULT_PATTERN);
+        try {
+            var options = LogOptions.fromEnvironment();
+            this.formatter = options.getFormatter();
+            var dest = options.getDestination();
+            this.setPrinter(Utilities.LogDestinationToPrintStream(dest),
+                    dest instanceof LogDestination.LogFile);
+        } catch (RuntimeException e) {
+            System.err.println("thislog: cannot apply the logging configuration in the environment ("
+                    + e + "); falling back to stdout");
+        }
+    }
+
+    private void setPrinter(PrintStream printer, boolean ownsPrinter) {
+        this.printer = printer;
+        this.ownsPrinter = ownsPrinter;
+    }
+
+    public static Logging create(String name) {
+        return new Logging(name);
     }
 
     @Override
@@ -57,23 +73,11 @@ public class Logging implements Loggable, AutoCloseable {
             return;
         }
         try {
-            PrintStream next = switch (destination) {
-                case LogDestination.Stdout ignored ->
-                    System.out;
-                case LogDestination.Stderr ignored ->
-                    System.err;
-                case LogDestination.LogFile logFile ->
-                    // Buffered, so FLUSH_THRESHOLD is what decides when bytes reach
-                    // the disk. A bare FileOutputStream has nothing to flush.
-                    new PrintStream(
-                            new BufferedOutputStream(new FileOutputStream(logFile.path(), true)),
-                            false);
-            };
+            var next = Utilities.LogDestinationToPrintStream(destination);
             if (this.ownsPrinter) {
                 this.printer.close();
             }
-            this.printer = next;
-            this.ownsPrinter = destination instanceof LogDestination.LogFile;
+            this.setPrinter(next, destination instanceof LogDestination.LogFile);
         } catch (Exception e) {
             this.printer.println("Failed to set log destination: " + e.getMessage());
         }
@@ -117,7 +121,6 @@ public class Logging implements Loggable, AutoCloseable {
     private static void appendThrowable(StringBuilder line, Throwable thrown) {
         line.append(LINE_SEPARATOR).append(thrown.toString().stripTrailing());
 
-        // A cause chain can be cyclic, so walk it by identity and stop on a repeat.
         var seen = Collections.newSetFromMap(new IdentityHashMap<Throwable, Boolean>());
         seen.add(thrown);
         for (var cause = thrown.getCause(); cause != null && seen.add(cause); cause = cause.getCause()) {

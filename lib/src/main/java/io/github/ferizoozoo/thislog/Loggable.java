@@ -1,6 +1,6 @@
 package io.github.ferizoozoo.thislog;
 
-public interface Loggable {
+public interface Loggable extends AutoCloseable {
     void setOptions(LogOptions options);
 
     void setFormatter(LogFormatter formatter);
@@ -9,6 +9,7 @@ public interface Loggable {
 
     String getName();
 
+    @Override
     void close();
 
     void log(LogLevel level, String message, Throwable thrown);
