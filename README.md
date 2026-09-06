@@ -171,4 +171,4 @@ named after the behaviour they pin down, in a sentence.
 
 ## License
 
-Not yet chosen.
+[MIT](LICENSE).

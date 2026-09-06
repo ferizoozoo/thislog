@@ -73,8 +73,13 @@ publishing {
                 description = "A small, dependency-free logging library for the JVM."
                 url = "https://github.com/ferizoozoo/thislog"
 
-                // TODO: add a <licenses> block once LICENSE lands. Maven Central
-                // rejects a POM without one.
+                licenses {
+                    license {
+                        name = "MIT License"
+                        url = "https://opensource.org/licenses/MIT"
+                        distribution = "repo"
+                    }
+                }
 
                 developers {
                     developer {
