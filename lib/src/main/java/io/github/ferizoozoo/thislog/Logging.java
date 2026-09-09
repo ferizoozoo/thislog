@@ -76,18 +76,18 @@ public class Logging implements Loggable {
         }
 
         var destination = options.getDestination();
-        if (destination == null) {
-            return;
-        }
-        try {
-            var next = Utilities.LogDestinationToPrintStream(destination);
-            if (this.ownsPrinter) {
-                this.printer.close();
+        if (destination != null) {
+            try {
+                var next = Utilities.LogDestinationToPrintStream(destination);
+                if (this.ownsPrinter) {
+                    this.printer.close();
+                }
+                this.setPrinter(next, destination instanceof LogDestination.LogFile);
+            } catch (Exception e) {
+                this.printer.println("Failed to set log destination: " + e.getMessage());
             }
-            this.setPrinter(next, destination instanceof LogDestination.LogFile);
-        } catch (Exception e) {
-            this.printer.println("Failed to set log destination: " + e.getMessage());
         }
+        
     }
 
     @Override
