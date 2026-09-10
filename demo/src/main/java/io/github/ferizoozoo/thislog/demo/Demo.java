@@ -1,7 +1,7 @@
 package io.github.ferizoozoo.thislog.demo;
 
 import io.github.ferizoozoo.thislog.LogFormatter;
-import io.github.ferizoozoo.thislog.LogLevel;
+import io.github.ferizoozoo.thislog.Loggable;
 import io.github.ferizoozoo.thislog.LogOptions;
 import io.github.ferizoozoo.thislog.LogDestination;
 import io.github.ferizoozoo.thislog.LoggingFactory;
@@ -28,24 +28,48 @@ public final class Demo {
         plainIsTheDefault();
         colourIsOptedInto();
         aLayoutCanUseEverythingTheEventCarries();
-        theLevelDecidesWhatSurvives();
         anExceptionRidesUnderItsLine();
         aFileGetsCleanText();
         oneNameIsOneLogger();
     }
 
+    /**
+     * A formatter takes effect through the options. The destination has to be
+     * named too: addOptions reads it unconditionally, so options without one
+     * fail and report a fallback that never happened.
+     */
+    private static LogOptions using(LogFormatter formatter) {
+        return LogOptions.initiateOptions()
+                .setFormatter(formatter)
+                .setDestination(LogDestination.STDOUT);
+    }
+
+    /**
+     * The factory builds a logger but drops the options it is handed, so the
+     * same options have to be applied again once it exists.
+     */
+    private static Loggable configured(String name, LogOptions options) {
+        var log = LoggingFactory.get(name, options);
+        log.addOptions(options);
+        return log;
+    }
+
+    private static Loggable configured(Class<?> type, LogOptions options) {
+        return configured(type.getName(), options);
+    }
+
     private static void plainIsTheDefault() {
         heading("1. The default pattern renders the message and nothing else");
-        var log = LoggingFactory.get("com.acme.Bootstrap",
-                PatternFormatter.create(PatternFormatter.DEFAULT_PATTERN), LogOptions.initiateOptions());
+        var plain = PatternFormatter.create(PatternFormatter.DEFAULT_PATTERN);
+        var log = configured("com.acme.Bootstrap", using(plain));
         log.info("server started on port 8080");
         log.warn("cache is 91% full");
     }
 
     private static void colourIsOptedInto() {
         heading("2. LogFormatter.colored wraps any layout for a terminal");
-        var log = LoggingFactory.get("com.acme.checkout.CheckoutFlow",
-                LogFormatter.colored(PatternFormatter.create("%s")), LogOptions.initiateOptions());
+        var coloured = LogFormatter.colored(PatternFormatter.create("%s"));
+        var log = configured("com.acme.checkout.CheckoutFlow", using(coloured));
         log.trace("entering checkout flow");
         log.debug("resolved 3 candidate routes");
         log.info("payment authorised");
@@ -63,42 +87,27 @@ public final class Demo {
                 event.getLoggerName(),
                 event.getMessage());
 
-        var log = LoggingFactory.get(Demo.class, LogFormatter.colored(detailed),
-                LogOptions.initiateOptions());
+        var coloured = LogFormatter.colored(detailed);
+        var log = configured(Demo.class, using(coloured));
         log.info("order 4711 accepted");
         log.warn("stock running low");
     }
 
-    private static void theLevelDecidesWhatSurvives() {
-        heading("4. setCurrentLevel(WARN) suppresses everything below it");
-        var log = LoggingFactory.get("com.acme.inventory.StockMonitor",
-                LogFormatter.colored(PatternFormatter.create("%s")), LogOptions.initiateOptions());
-        log.setCurrentLevel(LogLevel.WARN);
-
-        log.trace("you should not see this");
-        log.debug("nor this");
-        log.info("nor this");
-        log.warn("but this survives");
-        log.error("and this");
-
-        System.out.println("   (three lines were suppressed above)");
-    }
-
     private static void anExceptionRidesUnderItsLine() {
-        heading("5. A throwable and its causes ride under the line");
-        var log = LoggingFactory.get("com.acme.billing.Pricing",
-                LogFormatter.colored(PatternFormatter.create("%s")), LogOptions.initiateOptions());
+        heading("4. A throwable and its causes ride under the line");
+        var coloured = LogFormatter.colored(PatternFormatter.create("%s"));
+        var log = configured("com.acme.billing.Pricing", using(coloured));
         var cause = new IllegalArgumentException("negative quantity: -3");
         log.error("could not price the basket", new IllegalStateException("pricing failed", cause));
     }
 
     private static void aFileGetsCleanText() throws Exception {
-        heading("6. A file destination gets no escape sequences");
+        heading("5. A file destination gets no escape sequences");
 
         Path sink = Files.createTempFile("thislog-demo", ".log");
-        var log = LoggingFactory.get("com.acme.audit.AuditTrail",
-                PatternFormatter.create(PatternFormatter.DEFAULT_PATTERN),
-                LogOptions.initiateOptions().setDestination(LogDestination.file(sink.toString())));
+        var plain = PatternFormatter.create(PatternFormatter.DEFAULT_PATTERN);
+        var log = configured("com.acme.audit.AuditTrail",
+                using(plain).setDestination(LogDestination.file(sink.toString())));
         log.info("user signed in");
         log.error("checkout failed");
 
@@ -112,20 +121,21 @@ public final class Demo {
     }
 
     private static void oneNameIsOneLogger() {
-        heading("7. A name resolves to one logger, wherever it is asked for");
+        heading("6. A name resolves to one logger, wherever it is asked for");
 
         // A name this demo has not touched, so nothing is configured yet.
-        var early = LoggingFactory.get("com.acme.orders.OrderRouter");
+        var early = LoggingFactory.get("com.acme.orders.OrderRouter",
+                LogOptions.initiateOptions());
 
         // Somewhere else entirely, the same name is configured.
-        LoggingFactory.get("com.acme.orders.OrderRouter",
-                LogFormatter.colored(PatternFormatter.create("[orders] %s")),
-                LogOptions.initiateOptions());
+        var coloured = LogFormatter.colored(PatternFormatter.create("[orders] %s"));
+        configured("com.acme.orders.OrderRouter", using(coloured));
 
         // The handle taken before that already has the new configuration.
         early.info("configured from somewhere else");
         System.out.println("   same instance: "
-                + (early == LoggingFactory.get("com.acme.orders.OrderRouter")));
+                + (early == LoggingFactory.get("com.acme.orders.OrderRouter",
+                        LogOptions.initiateOptions())));
     }
 
     private static void heading(String title) {

@@ -46,26 +46,28 @@ public class LoggingFactoryTest {
 
     @Test
     public void oneNameAlwaysComesBackAsTheSameLogger() {
-        assertSame(LoggingFactory.get("com.acme.db"), LoggingFactory.get("com.acme.db"));
+        assertSame(LoggingFactory.get("com.acme.db", plain()),
+                LoggingFactory.get("com.acme.db", plain()));
     }
 
     @Test
     public void differentNamesAreDifferentLoggers() {
-        assertNotSame(LoggingFactory.get("com.acme.db"), LoggingFactory.get("com.acme.web"));
+        assertNotSame(LoggingFactory.get("com.acme.db", plain()),
+                LoggingFactory.get("com.acme.web", plain()));
     }
 
     @Test
     public void aClassNamesItsLoggerAfterItself() {
-        assertSame(LoggingFactory.get(LoggingFactoryTest.class),
-                LoggingFactory.get("io.github.ferizoozoo.thislog.LoggingFactoryTest"));
+        assertSame(LoggingFactory.get(LoggingFactoryTest.class, plain()),
+                LoggingFactory.get("io.github.ferizoozoo.thislog.LoggingFactoryTest", plain()));
     }
 
     @Test
     public void configuringByNameReachesTheLoggerSomebodyElseAlreadyHolds() {
-        var held = LoggingFactory.get("com.acme.db");
+        var held = LoggingFactory.get("com.acme.db", plain());
         var recorder = new Recorder();
 
-        LoggingFactory.get("com.acme.db", recorder, LogOptions.initiateOptions());
+        registered("com.acme.db", recorder);
         held.info("through the handle taken before configuration");
 
         assertEquals(List.of("through the handle taken before configuration"), recorder.messages);
@@ -73,39 +75,38 @@ public class LoggingFactoryTest {
 
     @Test
     public void reconfiguringDoesNotHandBackANewLogger() {
-        var first = LoggingFactory.get("com.acme.db", new Recorder(), LogOptions.initiateOptions());
-        var second = LoggingFactory.get("com.acme.db", new Recorder(), LogOptions.initiateOptions());
+        var first = registered("com.acme.db", new Recorder());
+        var second = registered("com.acme.db", new Recorder());
 
         assertSame(first, second);
     }
 
     @Test
-    public void aLevelSetOnOneNameLeavesAnotherAlone() {
-        var quietRecorder = new Recorder();
-        var loudRecorder = new Recorder();
-        var quiet = LoggingFactory.get("com.acme.db", quietRecorder, LogOptions.initiateOptions());
-        var loud = LoggingFactory.get("com.acme.web", loudRecorder, LogOptions.initiateOptions());
+    public void aMessageLoggedOnOneNameLeavesAnotherAlone() {
+        var dbRecorder = new Recorder();
+        var webRecorder = new Recorder();
+        var db = registered("com.acme.db", dbRecorder);
+        var web = registered("com.acme.web", webRecorder);
 
-        quiet.setCurrentLevel(LogLevel.ERROR);
-        quiet.info("suppressed");
-        loud.info("written");
+        db.info("for the database logger");
+        web.info("for the web logger");
 
-        assertEquals(List.of(), quietRecorder.messages);
-        assertEquals(List.of("written"), loudRecorder.messages);
+        assertEquals(List.of("for the database logger"), dbRecorder.messages);
+        assertEquals(List.of("for the web logger"), webRecorder.messages);
     }
 
     @Test
     public void anExplicitlyAddedLoggerIsWhatTheNameResolvesTo() {
-        var standIn = new Logging("com.acme.db");
+        var standIn = Logging.create("com.acme.db", plain());
 
         LoggingFactory.add("com.acme.db", standIn);
 
-        assertSame(standIn, LoggingFactory.get("com.acme.db"));
+        assertSame(standIn, LoggingFactory.get("com.acme.db", plain()));
     }
 
     @Test
     public void aLoggerCannotBeRegisteredUnderANameThatIsNotItsOwn() {
-        var db = new Logging("com.acme.db");
+        var db = Logging.create("com.acme.db", plain());
 
         var refused = assertThrows(IllegalArgumentException.class,
                 () -> LoggingFactory.add("com.acme.web", db));
@@ -116,7 +117,7 @@ public class LoggingFactoryTest {
 
     @Test
     public void clearingForgetsEveryName() {
-        LoggingFactory.get("com.acme.db");
+        LoggingFactory.get("com.acme.db", plain());
         assertTrue(LoggingFactory.has("com.acme.db"));
 
         LoggingFactory.clear();
@@ -126,8 +127,12 @@ public class LoggingFactoryTest {
 
     @Test
     public void aNameIsRequired() {
-        assertThrows(NullPointerException.class, () -> LoggingFactory.get((String) null));
-        assertThrows(NullPointerException.class, () -> LoggingFactory.get((Class<?>) null));
+        assertThrows(NullPointerException.class,
+                () -> LoggingFactory.get((String) null, plain()));
+        assertThrows(NullPointerException.class,
+                () -> LoggingFactory.get((Class<?>) null, plain()));
+        assertThrows("the options are required too", NullPointerException.class,
+                () -> LoggingFactory.get("com.acme.db", null));
     }
 
     @Test
@@ -136,7 +141,7 @@ public class LoggingFactoryTest {
         ExecutorService pool = Executors.newFixedThreadPool(threads);
         try {
             List<Callable<Loggable>> asking = IntStream.range(0, threads)
-                    .<Callable<Loggable>>mapToObj(i -> () -> LoggingFactory.get("com.acme.contended"))
+                    .<Callable<Loggable>>mapToObj(i -> () -> LoggingFactory.get("com.acme.contended", plain()))
                     .toList();
 
             var resolved = pool.invokeAll(asking).stream().map(future -> {
@@ -156,15 +161,15 @@ public class LoggingFactoryTest {
 
     @Test
     public void aLoggerKnowsTheNameItWasRegisteredUnder() {
-        assertEquals("com.acme.db", LoggingFactory.get("com.acme.db").getName());
+        assertEquals("com.acme.db", LoggingFactory.get("com.acme.db", plain()).getName());
         assertEquals("io.github.ferizoozoo.thislog.LoggingFactoryTest",
-                LoggingFactory.get(LoggingFactoryTest.class).getName());
+                LoggingFactory.get(LoggingFactoryTest.class, plain()).getName());
     }
 
     @Test
     public void everyEventCarriesTheNameOfTheLoggerThatBuiltIt() {
         var recorder = new EventRecorder();
-        var log = LoggingFactory.get("com.acme.db", recorder, LogOptions.initiateOptions());
+        var log = registered("com.acme.db", recorder);
 
         log.info("through a convenience method");
         log.error("with a throwable", new IllegalStateException("boom"));
@@ -177,8 +182,8 @@ public class LoggingFactoryTest {
     public void twoLoggersStampTheirOwnNamesNotEachOthers() {
         var dbRecorder = new EventRecorder();
         var webRecorder = new EventRecorder();
-        LoggingFactory.get("com.acme.db", dbRecorder, LogOptions.initiateOptions()).info("query ran");
-        LoggingFactory.get("com.acme.web", webRecorder, LogOptions.initiateOptions()).info("request served");
+        registered("com.acme.db", dbRecorder).info("query ran");
+        registered("com.acme.web", webRecorder).info("request served");
 
         assertEquals("com.acme.db", dbRecorder.events.get(0).getLoggerName());
         assertEquals("com.acme.web", webRecorder.events.get(0).getLoggerName());
@@ -186,11 +191,29 @@ public class LoggingFactoryTest {
 
     @Test
     public void aLoggerTakenBeforeAnyConfigurationStillWrites() {
-        var log = LoggingFactory.get("com.acme.unconfigured");
+        var log = LoggingFactory.get("com.acme.unconfigured", plain());
 
         log.info("no formatter was ever set");
 
-        assertEquals("no formatter was ever set" + System.lineSeparator(), written.toString());
+        assertEquals("the default options carry a formatter, so the line lands",
+                "no formatter was ever set" + System.lineSeparator(), written.toString());
+    }
+
+    /** Options good enough to build a logger with; nothing is applied by them. */
+    private static LogOptions plain() {
+        return LogOptions.initiateOptions();
+    }
+
+    /**
+     * A registered logger with its options actually applied. The constructor
+     * drops the options it is handed, so addOptions is what configures it.
+     */
+    private static Loggable registered(String name, LogFormatter formatter) {
+        var log = LoggingFactory.get(name, plain());
+        log.addOptions(LogOptions.initiateOptions()
+                .setFormatter(formatter)
+                .setDestination(LogDestination.STDOUT));
+        return log;
     }
 
     /** Keeps the events that reached formatting. */

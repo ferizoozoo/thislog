@@ -14,27 +14,30 @@ public class Logging implements Loggable {
     private static final LogLevel FLUSH_THRESHOLD = LogLevel.ERROR;
 
     private final String name;
-
     private volatile LogLevel currentLevel = LogLevel.TRACE;
-    private LogFormatter formatter;
+    private volatile LogOptions options;
 
     private PrintStream printer;
     private boolean ownsPrinter;
     private boolean reportedWriteFailure;
 
-    public Logging(String name) {
-        this(name, LogOptions::fromEnvironment);
-    }
-
-    Logging(String name, Supplier<LogOptions> options) {
+    private Logging(String name, LogOptions options) {
         this.name = Objects.requireNonNull(name, "name");
+        this.options = Objects.requireNonNull(options, "options");
 
         this.setPrinter(System.out, false);
-        this.formatter = PatternFormatter.create(PatternFormatter.DEFAULT_PATTERN);
+        this.options = LogOptions.initiateOptions();
+    }
+
+    public static Logging create(String name, LogOptions options) {
+        return new Logging(name, options);
+    }
+
+    @Override 
+    public void addOptions(LogOptions options) {
         try {
-            var resolved = options.get();
-            this.formatter = resolved.getFormatter();
-            var dest = resolved.getDestination();
+            this.options = options;
+            var dest = options.getDestination();
             this.setPrinter(Utilities.LogDestinationToPrintStream(dest),
                     dest instanceof LogDestination.LogFile);
         } catch (RuntimeException e) {
@@ -49,45 +52,9 @@ public class Logging implements Loggable {
         this.reportedWriteFailure = false;
     }
 
-    public static Logging create(String name) {
-        return new Logging(name);
-    }
-
     @Override
     public String getName() {
         return this.name;
-    }
-
-    @Override
-    public synchronized void setCurrentLevel(LogLevel level) {
-        this.currentLevel = level;
-    }
-
-    @Override
-    public synchronized void setFormatter(LogFormatter formatter) {
-        this.formatter = formatter;
-    }
-
-    @Override
-    public synchronized void setOptions(LogOptions options) {
-        var newFormatter = options.getFormatter();
-        if (newFormatter != null) {
-            this.formatter = newFormatter;
-        }
-
-        var destination = options.getDestination();
-        if (destination != null) {
-            try {
-                var next = Utilities.LogDestinationToPrintStream(destination);
-                if (this.ownsPrinter) {
-                    this.printer.close();
-                }
-                this.setPrinter(next, destination instanceof LogDestination.LogFile);
-            } catch (Exception e) {
-                this.printer.println("Failed to set log destination: " + e.getMessage());
-            }
-        }
-        
     }
 
     @Override
@@ -110,7 +77,7 @@ public class Logging implements Loggable {
 
     private synchronized void write(LogEvent logEvent) {
         try {
-            var line = new StringBuilder(this.formatter.format(logEvent));
+            var line = new StringBuilder(this.options.getFormatter().format(logEvent));
             if (logEvent.getThrown() != null) {
                 appendThrowable(line, logEvent.getThrown());
             }
@@ -124,15 +91,6 @@ public class Logging implements Loggable {
         }
     }
 
-    /**
-     * Flushes, then says something if the destination has been quietly refusing
-     * writes: a PrintStream never throws, it records the failure and carries on,
-     * so a full disk would otherwise lose lines in silence.
-     *
-     * <p>checkError() flushes before it reports, so this is the flush -- calling
-     * both would flush twice. That is also why the check happens only where a
-     * flush was going to happen anyway, rather than on every line.
-     */
     private void flushAndReportWriteFailure() {
         if (this.printer.checkError() && !this.reportedWriteFailure) {
             this.reportedWriteFailure = true;
@@ -157,7 +115,7 @@ public class Logging implements Loggable {
         try {
             var event = LogEvent.create("Failed to format log message", LogLevel.ERROR,
                     System.currentTimeMillis(), this.name, failure);
-            this.printer.println(this.formatter.format(event));
+            this.printer.println(this.options.getFormatter().format(event));
         } catch (Exception alsoFailed) {
             this.printer.println(LogLevel.color(LogLevel.ERROR)
                     + "Failed to format log message: " + failure

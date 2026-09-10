@@ -8,10 +8,10 @@ public class LogOptions {
     }
 
     public static LogOptions initiateOptions() {
-        return new LogOptions();
+        return fromEnvironment();
     }
 
-    public static LogOptions fromEnvironment() {
+    private static LogOptions fromEnvironment() {
         var options = new LogOptions();
         options.destination = LogDestination.create(System.getenv().getOrDefault("LOG_DESTINATION", "stdout"));
         options.formatter = PatternFormatter

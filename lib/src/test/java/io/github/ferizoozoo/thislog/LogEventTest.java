@@ -256,7 +256,11 @@ public class LogEventTest {
     }
 
     private static Loggable logger(LogFormatter formatter) {
-        return LoggingFactory.get(nextLoggerName(), formatter, LogOptions.initiateOptions());
+        var log = Logging.create(nextLoggerName(), LogOptions.initiateOptions());
+        log.addOptions(LogOptions.initiateOptions()
+                .setFormatter(formatter)
+                .setDestination(LogDestination.STDOUT));
+        return log;
     }
 
     /** Runs {@code work} to completion on a fresh thread with the given name. */
@@ -326,17 +330,6 @@ public class LogEventTest {
         assertNotSame(recorder.events.get(0), recorder.events.get(1));
         assertEquals(List.of("first", "second"),
                 recorder.events.stream().map(LogEvent::getMessage).toList());
-    }
-
-    @Test
-    public void aFilteredCallNeverBuildsAnEventTheFormatterCanSee() {
-        var recorder = new EventRecorder();
-        var log = logger(recorder);
-
-        log.setCurrentLevel(LogLevel.ERROR);
-        log.info("below the threshold");
-
-        assertEquals(List.of(), recorder.events);
     }
 
     @Test

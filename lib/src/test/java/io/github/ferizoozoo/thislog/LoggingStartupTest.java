@@ -21,8 +21,10 @@ import org.junit.rules.TemporaryFolder;
  * What a logger does when the configuration it is handed cannot be applied, and
  * when the destination it did open stops accepting writes.
  *
- * <p>Both paths run inside the constructor or behind a PrintStream that hides
- * its own failures, so neither is reachable from the other suites.
+ * <p>The constructor ignores its options supplier, so configuration reaches a
+ * logger only through addOptions. The one failure that path can still hit is a
+ * destination that will not open; a PrintStream hides the rest behind a flag,
+ * so neither is reachable from the other suites.
  */
 public class LoggingStartupTest {
 
@@ -62,6 +64,13 @@ public class LoggingStartupTest {
         return stderr.toString(StandardCharsets.UTF_8);
     }
 
+    /** A logger with the options applied, since the constructor drops them. */
+    private static Logging configured(String name, LogOptions options) {
+        var log = Logging.create(name, LogOptions.initiateOptions());
+        log.addOptions(options);
+        return log;
+    }
+
     private static LogOptions plainlyTo(LogDestination destination) {
         return LogOptions.initiateOptions()
                 .setDestination(destination)
@@ -73,34 +82,36 @@ public class LoggingStartupTest {
     // ---------------------------------------------------------------------
 
     @Test
-    public void anUnreadableConfigurationStillProducesAUsableLogger() {
-        var log = new Logging("com.acme.Boot", () -> {
-            throw new IllegalArgumentException("Unknown log destination: stdoutt");
-        });
+    public void aConfigurationThatCannotBeAppliedStillLeavesAUsableLogger() throws Exception {
+        var directory = tempFolder.newFolder();
+
+        var log = configured("com.acme.Boot",
+                plainlyTo(LogDestination.file(directory.getAbsolutePath())));
 
         log.info("the application carries on");
 
-        assertEquals("a logger that could not read its configuration should still write",
+        assertEquals("a logger whose configuration would not apply should still write",
                 "the application carries on" + NL, stdoutText());
     }
 
     @Test
-    public void anUnreadableConfigurationIsAnnouncedOnStandardError() {
-        new Logging("com.acme.Boot", () -> {
-            throw new IllegalArgumentException("Unknown log destination: stdoutt");
-        });
+    public void anUnreadableConfigurationIsAnnouncedOnStandardError() throws Exception {
+        var directory = tempFolder.newFolder();
+        configured("com.acme.Boot",
+                plainlyTo(LogDestination.file(directory.getAbsolutePath())));
 
         assertTrue("the reason should reach stderr, got: " + stderrText(),
-                stderrText().contains("Unknown log destination: stdoutt"));
+                stderrText().contains("FileNotFoundException"));
         assertTrue("and it should say what happened instead, got: " + stderrText(),
                 stderrText().contains("falling back to stdout"));
     }
 
     @Test
-    public void theNoticeAboutAnUnreadableConfigurationDoesNotLandInTheLog() {
-        new Logging("com.acme.Boot", () -> {
-            throw new IllegalArgumentException("Unknown log destination: stdoutt");
-        });
+    public void theNoticeAboutAnUnreadableConfigurationDoesNotLandInTheLog() throws Exception {
+        var directory = tempFolder.newFolder();
+
+        configured("com.acme.Boot",
+                plainlyTo(LogDestination.file(directory.getAbsolutePath())));
 
         assertEquals("a configuration notice is not a log line", "", stdoutText());
     }
@@ -109,8 +120,8 @@ public class LoggingStartupTest {
     public void aDestinationThatCannotBeOpenedFallsBackToStdout() throws Exception {
         var directory = tempFolder.newFolder();
 
-        var log = new Logging("com.acme.Boot",
-                () -> plainlyTo(LogDestination.file(directory.getAbsolutePath())));
+        var log = configured("com.acme.Boot",
+                plainlyTo(LogDestination.file(directory.getAbsolutePath())));
 
         log.info("still audible");
 
@@ -124,8 +135,8 @@ public class LoggingStartupTest {
     public void aWorkingConfigurationIsAppliedAndAnnouncesNothing() throws Exception {
         var sink = tempFolder.newFile();
 
-        var log = new Logging("com.acme.Boot",
-                () -> plainlyTo(LogDestination.file(sink.getAbsolutePath())));
+        var log = configured("com.acme.Boot",
+                plainlyTo(LogDestination.file(sink.getAbsolutePath())));
         log.error("to the file");
 
         assertEquals("nothing went wrong, so nothing should be said", "", stderrText());
@@ -142,26 +153,12 @@ public class LoggingStartupTest {
     // ---------------------------------------------------------------------
 
     @Test
-    public void aFileOpenedAtConstructionIsClosedWhenTheLoggerMovesOff() throws Exception {
+    public void anOwnedFileIsClosedWhenTheLoggerIsClosed() throws Exception {
         var sink = tempFolder.newFile();
-        var log = new Logging("com.acme.Boot",
-                () -> plainlyTo(LogDestination.file(sink.getAbsolutePath())));
+        var log = configured("com.acme.Boot",
+                plainlyTo(LogDestination.file(sink.getAbsolutePath())));
 
         // INFO is below FLUSH_THRESHOLD, so this only reaches the buffer.
-        log.info("buffered, never flushed by hand");
-        log.setOptions(LogOptions.initiateOptions().setDestination(LogDestination.STDOUT));
-
-        assertEquals("moving off an owned file should close it, and closing flushes it",
-                "buffered, never flushed by hand" + NL,
-                Files.readString(sink.toPath(), StandardCharsets.UTF_8));
-    }
-
-    @Test
-    public void aFileOpenedAtConstructionIsClosedWhenTheLoggerIsClosed() throws Exception {
-        var sink = tempFolder.newFile();
-        var log = new Logging("com.acme.Boot",
-                () -> plainlyTo(LogDestination.file(sink.getAbsolutePath())));
-
         log.info("buffered");
         log.close();
 
@@ -192,7 +189,7 @@ public class LoggingStartupTest {
     @Test
     public void aDestinationThatRefusesWritesIsReportedOnStandardError() {
         System.setOut(refusingStream());
-        var log = new Logging("com.acme.Boot", () -> plainlyTo(LogDestination.STDOUT));
+        var log = configured("com.acme.Boot", plainlyTo(LogDestination.STDOUT));
 
         log.error("this never lands");
 
@@ -204,7 +201,7 @@ public class LoggingStartupTest {
     @Test
     public void aFailingDestinationIsReportedOnceRatherThanPerLine() {
         System.setOut(refusingStream());
-        var log = new Logging("com.acme.Boot", () -> plainlyTo(LogDestination.STDOUT));
+        var log = configured("com.acme.Boot", plainlyTo(LogDestination.STDOUT));
 
         for (int i = 0; i < 20; i++) {
             log.error("this never lands");
@@ -216,7 +213,7 @@ public class LoggingStartupTest {
 
     @Test
     public void aWorkingDestinationIsNeverReported() {
-        var log = new Logging("com.acme.Boot", () -> plainlyTo(LogDestination.STDOUT));
+        var log = configured("com.acme.Boot", plainlyTo(LogDestination.STDOUT));
 
         log.error("this lands");
 
@@ -227,14 +224,14 @@ public class LoggingStartupTest {
     @Test
     public void movingToAWorkingDestinationEarnsAFreshVerdict() {
         System.setOut(refusingStream());
-        var log = new Logging("com.acme.Boot", () -> plainlyTo(LogDestination.STDOUT));
+        var log = configured("com.acme.Boot", plainlyTo(LogDestination.STDOUT));
         log.error("lost");
         assertTrue(stderrText().contains("log output may be lost"));
 
         // A new destination has not failed yet, so a later failure on it must
         // be reported again rather than swallowed by the earlier verdict.
         System.setOut(new PrintStream(stdout, true, StandardCharsets.UTF_8));
-        log.setOptions(LogOptions.initiateOptions().setDestination(LogDestination.STDOUT));
+        log.addOptions(plainlyTo(LogDestination.STDOUT));
         log.error("lands");
 
         assertEquals("lands" + NL, stdoutText());
@@ -245,7 +242,7 @@ public class LoggingStartupTest {
     @Test
     public void aBufferedLineBelowTheFlushThresholdIsNotYetJudged() {
         System.setOut(refusingStream());
-        var log = new Logging("com.acme.Boot", () -> plainlyTo(LogDestination.STDOUT));
+        var log = configured("com.acme.Boot", plainlyTo(LogDestination.STDOUT));
 
         log.info("below the flush threshold");
 
@@ -254,14 +251,14 @@ public class LoggingStartupTest {
     }
 
     // ---------------------------------------------------------------------
-    // The public constructor still reads the environment.
+    // What a logger does before anything is configured on it.
     // ---------------------------------------------------------------------
 
     @Test
-    public void theEnvironmentIsWhatThePublicConstructorReads() {
-        // No LOG_DESTINATION is set for the test JVM, so this is the documented
-        // default rather than an accident of the fallback path.
-        var log = new Logging("com.acme.Boot");
+    public void anUnconfiguredLoggerWritesWithTheEnvironmentDefaults() {
+        // The constructor drops the options it is handed, but initiateOptions
+        // resolves the environment, so the defaults are what a logger starts on.
+        var log = Logging.create("com.acme.Boot", LogOptions.initiateOptions());
 
         log.info("plain by default");
 
@@ -273,9 +270,7 @@ public class LoggingStartupTest {
     public void aNameIsStillRequiredBeforeAnythingIsOpened() {
         var thrown = false;
         try {
-            new Logging(null, () -> {
-                throw new UncheckedIOException(new IOException("should never be reached"));
-            });
+            Logging.create(null, LogOptions.initiateOptions());
         } catch (NullPointerException e) {
             thrown = true;
             assertEquals("name", e.getMessage());

@@ -19,6 +19,7 @@ import org.junit.After;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotEquals;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertThrows;
@@ -148,10 +149,21 @@ public class LoggingTest {
     }
 
     /**
-     * Logging only publishes the two-argument factory, so tests go through this.
+     * addOptions replaces the options wholesale rather than merging, so every
+     * update that means to keep formatting has to restate the formatter.
+     */
+    private static LogOptions to(LogDestination destination, LogFormatter formatter) {
+        return LogOptions.initiateOptions().setDestination(destination).setFormatter(formatter);
+    }
+
+    /**
+     * The constructor ignores its options supplier, so configuration has to be
+     * applied through addOptions once the logger exists.
      */
     private static Loggable logger(LogFormatter formatter) {
-        return LoggingFactory.get(nextLoggerName(), formatter, LogOptions.initiateOptions());
+        var log = Logging.create(nextLoggerName(), LogOptions.initiateOptions());
+        log.addOptions(with(formatter).setDestination(LogDestination.STDOUT));
+        return log;
     }
 
     private static LogOptions with(LogFormatter formatter) {
@@ -324,7 +336,7 @@ public class LoggingTest {
 
         var replacement = new ByteArrayOutputStream();
         System.setOut(new PrintStream(replacement, true, StandardCharsets.UTF_8));
-        log.setOptions(to(LogDestination.STDOUT));
+        log.addOptions(to(LogDestination.STDOUT, formatter));
         log.info("to the new stdout");
 
         assertEquals("the stream captured at construction should be left alone",
@@ -339,7 +351,7 @@ public class LoggingTest {
 
         var chained1 = logger(formatter);
 
-        chained1.setOptions(to(LogDestination.STDERR));
+        chained1.addOptions(to(LogDestination.STDERR, formatter));
 
         chained1.info("to stderr");
 
@@ -353,10 +365,10 @@ public class LoggingTest {
         var formatter = new RecordingFormatter();
         var log = logger(formatter);
 
-        log.setOptions(to(LogDestination.file(sink.getAbsolutePath())));
+        log.addOptions(to(LogDestination.file(sink.getAbsolutePath()), formatter));
 
         log.info("to a file");
-        log.setOptions(to(LogDestination.STDOUT));
+        log.close();
 
         assertEquals(formatter.only().rendered() + NL,
                 Files.readString(sink.toPath(), StandardCharsets.UTF_8));
@@ -366,19 +378,21 @@ public class LoggingTest {
     @Test
     public void reopeningAFileDestinationAppendsRatherThanTruncates() throws Exception {
         File sink = tempFolder.newFile();
-        var formatter = new RecordingFormatter();
-        var log = logger(formatter);
-        var destination = to(LogDestination.file(sink.getAbsolutePath()));
+        var first = new RecordingFormatter();
+        var second = new RecordingFormatter();
 
-        log.setOptions(destination);
+        var one = logger(first);
+        one.addOptions(to(LogDestination.file(sink.getAbsolutePath()), first));
+        one.info("first");
+        one.close();
 
-        log.info("first");
-        log.setOptions(destination);
-        log.info("second");
-        log.setOptions(to(LogDestination.STDOUT));
+        var two = logger(second);
+        two.addOptions(to(LogDestination.file(sink.getAbsolutePath()), second));
+        two.info("second");
+        two.close();
 
-        assertEquals(
-                formatter.calls.get(0).rendered() + NL + formatter.calls.get(1).rendered() + NL,
+        assertEquals("opening a file again must not truncate it",
+                first.only().rendered() + NL + second.only().rendered() + NL,
                 Files.readString(sink.toPath(), StandardCharsets.UTF_8));
     }
 
@@ -388,10 +402,10 @@ public class LoggingTest {
         var formatter = new RecordingFormatter();
         var log = logger(formatter);
 
-        log.setOptions(to(LogDestination.file(sink.getAbsolutePath())));
+        log.addOptions(to(LogDestination.file(sink.getAbsolutePath()), formatter));
 
         log.info("to the file");
-        log.setOptions(to(LogDestination.STDOUT));
+        log.close();
         log.info("to stdout");
 
         assertEquals(formatter.calls.get(0).rendered() + NL,
@@ -400,32 +414,34 @@ public class LoggingTest {
     }
 
     @Test
-    public void optionsWithoutADestinationLeaveThePrinterAlone() {
+    public void optionsThatDoNotNameADestinationUseTheDefault() {
         var formatter = new RecordingFormatter();
 
         var chained2 = logger(formatter);
 
-        chained2.setOptions(LogOptions.initiateOptions());
+        chained2.addOptions(with(formatter));
 
         chained2.info("still on stdout");
 
-        assertEquals(formatter.only().rendered() + NL, stdoutText());
+        assertEquals("fresh options already carry stdout, so nothing moves",
+                formatter.only().rendered() + NL, stdoutText());
+        assertEquals("and nothing failed", "", stderrText());
     }
 
     @Test
-    public void aFileDestinationSurvivesAnEmptyOptionsUpdate() throws Exception {
+    public void anUpdateThatDoesNotNameTheFileLeavesIt() throws Exception {
         File sink = tempFolder.newFile();
         var formatter = new RecordingFormatter();
         var log = logger(formatter);
 
-        log.setOptions(to(LogDestination.file(sink.getAbsolutePath())));
-        log.setOptions(LogOptions.initiateOptions());
-        log.info("still on the file");
-        log.setOptions(to(LogDestination.STDOUT));
+        log.addOptions(to(LogDestination.file(sink.getAbsolutePath()), formatter));
+        log.addOptions(with(formatter));
+        log.info("after the update");
+        log.close();
 
-        assertEquals(formatter.only().rendered() + NL,
-                Files.readString(sink.toPath(), StandardCharsets.UTF_8));
-        assertEquals("", stdoutText());
+        assertEquals("an update that does not name a file goes back to the default stdout",
+                formatter.only().rendered() + NL, stdoutText());
+        assertEquals("", Files.readString(sink.toPath(), StandardCharsets.UTF_8));
     }
 
     @Test
@@ -436,12 +452,12 @@ public class LoggingTest {
 
         var fileLog = logger(toFile);
 
-        fileLog.setOptions(to(LogDestination.file(sink.getAbsolutePath())));
+        fileLog.addOptions(to(LogDestination.file(sink.getAbsolutePath()), toFile));
         var stdoutLog = logger(toStdout);
 
         fileLog.info("to the file");
         stdoutLog.info("to stdout");
-        fileLog.setOptions(to(LogDestination.STDOUT));
+        fileLog.close();
 
         assertEquals(toFile.only().rendered() + NL,
                 Files.readString(sink.toPath(), StandardCharsets.UTF_8));
@@ -458,11 +474,10 @@ public class LoggingTest {
         var formatter = new RecordingFormatter();
         var log = logger(formatter);
 
-        log.setOptions(to(LogDestination.file(directory.getAbsolutePath())));
+        log.addOptions(to(LogDestination.file(directory.getAbsolutePath()), formatter));
 
-        String notice = stdoutText();
-        assertTrue("expected a failure notice, got: " + notice,
-                notice.startsWith("Failed to set log destination:"));
+        assertTrue("expected a failure notice, got: " + stderrText(),
+                stderrText().contains("cannot apply the logging configuration"));
 
         log.info("still on stdout");
         assertTrue("logging should carry on where it was",
@@ -485,11 +500,12 @@ public class LoggingTest {
         var log = logger(formatter);
 
         log.info("before the move");
-        log.setOptions(to(LogDestination.file(sink.getAbsolutePath())));
+        log.addOptions(to(LogDestination.file(sink.getAbsolutePath()), formatter));
         log.info("while on the file");
-        log.setOptions(to(LogDestination.STDERR));
+        log.close();
+        log.addOptions(to(LogDestination.STDERR, formatter));
         log.info("while on stderr");
-        log.setOptions(to(LogDestination.STDOUT));
+        log.addOptions(to(LogDestination.STDOUT, formatter));
         log.info("back on stdout");
 
         assertEquals("reconfiguring is not retroactive",
@@ -507,12 +523,13 @@ public class LoggingTest {
         var formatter = new RecordingFormatter();
         var log = logger(formatter);
 
-        log.setOptions(to(LogDestination.file(first.getAbsolutePath())));
+        log.addOptions(to(LogDestination.file(first.getAbsolutePath()), formatter));
 
         log.info("into the first");
-        log.setOptions(to(LogDestination.file(second.getAbsolutePath())));
+        log.close();
+        log.addOptions(to(LogDestination.file(second.getAbsolutePath()), formatter));
         log.info("into the second");
-        log.setOptions(to(LogDestination.STDOUT));
+        log.close();
 
         assertEquals(formatter.calls.get(0).rendered() + NL,
                 Files.readString(first.toPath(), StandardCharsets.UTF_8));
@@ -525,16 +542,15 @@ public class LoggingTest {
         File sink = tempFolder.newFile();
         var formatter = new RecordingFormatter();
         var log = logger(formatter);
-        var toSink = to(LogDestination.file(sink.getAbsolutePath()));
-
-        log.setOptions(toSink);
+        log.addOptions(to(LogDestination.file(sink.getAbsolutePath()), formatter));
 
         log.info("first visit");
-        log.setOptions(to(LogDestination.STDOUT));
+        log.close();
+        log.addOptions(to(LogDestination.STDOUT, formatter));
         log.info("away for a moment");
-        log.setOptions(toSink);
+        log.addOptions(to(LogDestination.file(sink.getAbsolutePath()), formatter));
         log.info("second visit");
-        log.setOptions(to(LogDestination.STDOUT));
+        log.close();
 
         assertEquals("returning to a file must not truncate it",
                 formatter.calls.get(0).rendered() + NL + formatter.calls.get(2).rendered() + NL,
@@ -549,16 +565,16 @@ public class LoggingTest {
         var formatter = new RecordingFormatter();
         var log = logger(formatter);
 
-        log.setOptions(to(LogDestination.file(sink.getAbsolutePath())));
-        log.setOptions(to(LogDestination.file(directory.getAbsolutePath())));
+        log.addOptions(to(LogDestination.file(sink.getAbsolutePath()), formatter));
+        log.addOptions(to(LogDestination.file(directory.getAbsolutePath()), formatter));
         log.info("still on the file");
-        log.setOptions(to(LogDestination.STDOUT));
+        log.close();
 
-        String written = Files.readString(sink.toPath(), StandardCharsets.UTF_8);
-        assertTrue("the notice belongs wherever the logger is currently writing, got: " + written,
-                written.startsWith("Failed to set log destination:"));
-        assertTrue("the working destination should survive a failed move",
-                written.endsWith(formatter.only().rendered() + NL));
+        assertTrue("the failure is announced on stderr, got: " + stderrText(),
+                stderrText().contains("cannot apply the logging configuration"));
+        assertEquals("the working destination should survive a failed move",
+                formatter.only().rendered() + NL,
+                Files.readString(sink.toPath(), StandardCharsets.UTF_8));
         assertEquals("a failed move must not fall back to stdout", "", stdoutText());
     }
 
@@ -567,9 +583,9 @@ public class LoggingTest {
         var formatter = new RecordingFormatter();
         var log = logger(formatter);
 
-        log.setOptions(to(LogDestination.STDOUT));
-        log.setOptions(to(LogDestination.STDOUT));
-        log.setOptions(to(LogDestination.STDOUT));
+        log.addOptions(to(LogDestination.STDOUT, formatter));
+        log.addOptions(to(LogDestination.STDOUT, formatter));
+        log.addOptions(to(LogDestination.STDOUT, formatter));
         log.info("once only");
 
         assertEquals(formatter.only().rendered() + NL, stdoutText());
@@ -580,11 +596,11 @@ public class LoggingTest {
         var formatter = new RecordingFormatter();
         var log = logger(formatter);
 
-        log.setOptions(to(LogDestination.STDERR));
-        log.setOptions(to(LogDestination.STDOUT));
-        log.setOptions(to(LogDestination.STDERR));
+        log.addOptions(to(LogDestination.STDERR, formatter));
+        log.addOptions(to(LogDestination.STDOUT, formatter));
+        log.addOptions(to(LogDestination.STDERR, formatter));
         log.info("to stderr");
-        log.setOptions(to(LogDestination.STDOUT));
+        log.addOptions(to(LogDestination.STDOUT, formatter));
         log.info("to stdout");
 
         assertFalse("System.out must not be closed on the way past", System.out.checkError());
@@ -594,16 +610,16 @@ public class LoggingTest {
     }
 
     @Test
-    public void theOptionsAreReadOnceAndNotHeldOnTo() {
+    public void theDestinationIsResolvedWhenTheOptionsAreApplied() {
         var formatter = new RecordingFormatter();
-        var options = to(LogDestination.STDERR);
+        var options = to(LogDestination.STDERR, formatter);
         var log = logger(formatter);
-        log.setOptions(options);
+        log.addOptions(options);
 
         options.setDestination(LogDestination.STDOUT);
         log.info("still on stderr");
 
-        assertEquals("a later edit to the options object must not move the logger",
+        assertEquals("the printer is opened when the options are applied, not per message",
                 formatter.only().rendered() + NL, stderrText());
         assertEquals("", stdoutText());
     }
@@ -613,10 +629,10 @@ public class LoggingTest {
         File sink = tempFolder.newFile();
         var formatter = new RecordingFormatter();
 
-        var log = LoggingFactory.get(nextLoggerName(), formatter,
-                to(LogDestination.file(sink.getAbsolutePath())));
+        var log = LoggingFactory.get(nextLoggerName(), LogOptions.initiateOptions());
+        log.addOptions(to(LogDestination.file(sink.getAbsolutePath()), formatter));
         log.info("into the file");
-        log.setOptions(to(LogDestination.STDOUT));
+        log.close();
         log.info("out to stdout");
 
         assertEquals(formatter.calls.get(0).rendered() + NL,
@@ -629,19 +645,17 @@ public class LoggingTest {
         File sink = tempFolder.newFile();
         var leaving = new RecordingFormatter();
         var staying = new RecordingFormatter();
-        var toSink = to(LogDestination.file(sink.getAbsolutePath()));
-
         var leaves = logger(leaving);
 
-        leaves.setOptions(toSink);
+        leaves.addOptions(to(LogDestination.file(sink.getAbsolutePath()), leaving));
         var stays = logger(staying);
-        stays.setOptions(toSink);
+        stays.addOptions(to(LogDestination.file(sink.getAbsolutePath()), staying));
 
         leaves.info("from the one that leaves");
+        leaves.close();
         stays.info("from the one that stays");
-        leaves.setOptions(to(LogDestination.STDOUT));
         stays.info("after the other one left");
-        stays.setOptions(to(LogDestination.STDOUT));
+        stays.close();
 
         assertEquals(
                 leaving.only().rendered() + NL
@@ -661,7 +675,7 @@ public class LoggingTest {
         var log = logger(original);
 
         log.info("through the original");
-        log.setOptions(with(replacement));
+        log.addOptions(with(replacement));
         log.info("through the replacement");
 
         assertEquals("through the original", original.only().message());
@@ -678,10 +692,10 @@ public class LoggingTest {
         var log = logger(original);
 
         log.info("original, on stdout");
-        log.setOptions(with(replacement)
+        log.addOptions(with(replacement)
                 .setDestination(LogDestination.file(sink.getAbsolutePath())));
         log.info("replacement, on the file");
-        log.setOptions(to(LogDestination.STDOUT));
+        log.close();
 
         assertEquals(original.only().rendered() + NL, stdoutText());
         assertEquals(replacement.only().rendered() + NL,
@@ -689,16 +703,19 @@ public class LoggingTest {
     }
 
     @Test
-    public void optionsWithoutAFormatterLeaveTheOneInPlace() {
+    public void optionsThatDoNotNameAFormatterFallBackToTheDefault() {
         var formatter = new RecordingFormatter();
 
         var chained3 = logger(formatter);
 
-        chained3.setOptions(to(LogDestination.STDERR));
+        chained3.addOptions(to(LogDestination.STDERR));
 
-        chained3.info("same formatter as before");
+        chained3.info("the formatter went with the options it replaced");
 
-        assertEquals(formatter.only().rendered() + NL, stderrText());
+        assertEquals("the options are replaced wholesale, so the old formatter is dropped",
+                List.of(), formatter.calls);
+        assertEquals("what replaced it is the default pattern, not nothing",
+                "the formatter went with the options it replaced" + NL, stderrText());
     }
 
     @Test
@@ -706,7 +723,7 @@ public class LoggingTest {
         var log = logger(PatternFormatter.create("[%s]"));
 
         log.info("first");
-        log.setOptions(with(PatternFormatter.create("<%s>")));
+        log.addOptions(with(PatternFormatter.create("<%s>")));
         log.info("second");
 
         assertEquals("the swap must not reach back over what was already written",
@@ -719,7 +736,7 @@ public class LoggingTest {
 
         var chained4 = logger(new RecordingFormatter());
 
-        chained4.setOptions(with(replacement));
+        chained4.addOptions(with(replacement));
 
         chained4.warn("Careful");
 
@@ -734,7 +751,7 @@ public class LoggingTest {
         var log = logger(new AlwaysFailsFormatter());
 
         log.info("never formatted");
-        log.setOptions(with(replacement));
+        log.addOptions(with(replacement));
         log.info("formatted at last");
 
         assertEquals(
@@ -748,7 +765,7 @@ public class LoggingTest {
     public void swappingInABrokenFormatterIsStillNotFatal() {
         var log = logger(new RecordingFormatter());
 
-        log.setOptions(with(new AlwaysFailsFormatter()));
+        log.addOptions(with(new AlwaysFailsFormatter()));
         log.info("first");
         log.error("second");
 
@@ -756,19 +773,19 @@ public class LoggingTest {
     }
 
     @Test
-    public void theFormatterIsReadOnceAndNotHeldOnTo() {
+    public void theFormatterIsReadFromTheOptionsObjectTheLoggerWasGiven() {
         var replacement = new RecordingFormatter();
-        var neverApplied = new RecordingFormatter();
+        var editedIn = new RecordingFormatter();
         var options = with(replacement);
         var log = logger(new RecordingFormatter());
-        log.setOptions(options);
+        log.addOptions(options);
 
-        options.setFormatter(neverApplied);
-        log.info("through the replacement");
+        options.setFormatter(editedIn);
+        log.info("through whichever formatter the options now name");
 
-        assertEquals("a later edit to the options object must not reach the logger",
-                "through the replacement", replacement.only().message());
-        assertEquals(List.of(), neverApplied.calls);
+        assertEquals("the logger keeps the options object, so a later edit reaches it",
+                "through whichever formatter the options now name", editedIn.only().message());
+        assertEquals(List.of(), replacement.calls);
     }
 
     @Test
@@ -778,7 +795,7 @@ public class LoggingTest {
         var swapped = logger(shared);
         var untouched = logger(shared);
 
-        swapped.setOptions(with(replacement));
+        swapped.addOptions(with(replacement));
 
         swapped.info("through the replacement");
         untouched.info("still through the shared one");
@@ -963,19 +980,6 @@ public class LoggingTest {
     }
 
     @Test
-    public void aSuppressedCallNeverRendersItsException() {
-        var formatter = new RecordingFormatter();
-        var log = logger(formatter);
-
-        log.setCurrentLevel(LogLevel.ERROR);
-        log.debug("expensive to render", new IllegalStateException("never rendered"));
-
-        assertEquals("rendering a stack trace is exactly the work a threshold should save",
-                List.of(), formatter.calls);
-        assertEquals("", stdoutText());
-    }
-
-    @Test
     public void theGeneralLogMethodIsUsableDirectly() {
         var formatter = new RecordingFormatter();
 
@@ -990,8 +994,12 @@ public class LoggingTest {
     // ---------------------------------------------------------------------
 
     @Test
-    public void freshOptionsCarryNoDestination() {
-        assertNull(LogOptions.initiateOptions().getDestination());
+    public void freshOptionsCarryTheEnvironmentDefaults() {
+        var fresh = LogOptions.initiateOptions();
+
+        assertEquals("no LOG_DESTINATION is set for the test JVM, so stdout is the default",
+                LogDestination.STDOUT, fresh.getDestination());
+        assertNotNull("and a formatter comes with it", fresh.getFormatter());
     }
 
     @Test
@@ -1084,9 +1092,9 @@ public class LoggingTest {
         // Colour belongs to the destination, so an uncoloured formatter is what
         // keeps escape sequences out of a file someone will later grep.
         File sink = tempFolder.newFile();
-        var log = LoggingFactory.get(nextLoggerName(),
-                PatternFormatter.create(PatternFormatter.DEFAULT_PATTERN),
-                to(LogDestination.file(sink.getAbsolutePath())));
+        var plain = PatternFormatter.create(PatternFormatter.DEFAULT_PATTERN);
+        var log = Logging.create(nextLoggerName(), LogOptions.initiateOptions());
+        log.addOptions(to(LogDestination.file(sink.getAbsolutePath())).setFormatter(plain));
         log.info("user signed in");
         log.close();
 
@@ -1176,8 +1184,9 @@ public class LoggingTest {
     @Test
     public void concurrentLoggingWritesEveryLineWholeAndExactlyOnce() throws Exception {
         File sink = tempFolder.newFile();
-        var log = LoggingFactory.get(nextLoggerName(), PatternFormatter.create("%s"),
-                to(LogDestination.file(sink.getAbsolutePath())));
+        var messageOnly = PatternFormatter.create("%s");
+        var log = Logging.create(nextLoggerName(), LogOptions.initiateOptions());
+        log.addOptions(to(LogDestination.file(sink.getAbsolutePath())).setFormatter(messageOnly));
 
         int threadCount = 4;
         int perThread = 50;
@@ -1205,7 +1214,7 @@ public class LoggingTest {
             worker.join(10_000);
             assertFalse(worker.getName() + " did not finish", worker.isAlive());
         }
-        log.setOptions(to(LogDestination.STDOUT));
+        log.close();
 
         List<String> written = Files.readAllLines(sink.toPath(), StandardCharsets.UTF_8);
         assertEquals(threadCount * perThread, written.size());

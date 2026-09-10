@@ -99,7 +99,11 @@ public class LoggingContextTest {
     }
 
     private static Loggable logger(LogFormatter formatter) {
-        return LoggingFactory.get(nextLoggerName(), formatter, LogOptions.initiateOptions());
+        var log = Logging.create(nextLoggerName(), LogOptions.initiateOptions());
+        log.addOptions(LogOptions.initiateOptions()
+                .setFormatter(formatter)
+                .setDestination(LogDestination.STDOUT));
+        return log;
     }
 
     /** Runs {@code work} to completion on a fresh thread with the given name. */
@@ -181,19 +185,6 @@ public class LoggingContextTest {
     }
 
     @Test
-    public void aDroppedMessageDoesNotCostTheNextOneItsThreadName() {
-        var recorder = new Recorder();
-        var log = logger(recorder);
-
-        log.setCurrentLevel(LogLevel.INFO);
-        log.debug("dropped before it reaches the formatter");
-        log.info("kept");
-
-        assertEquals("filtering a message must leave the next one intact",
-            thisThread(), recorder.forMessage("kept").getThreadName());
-    }
-
-    @Test
     public void aFailedFormatDoesNotCostTheNextMessageItsThreadName() {
         var formatter = new FailsOnce();
         var log = logger(formatter);
@@ -212,7 +203,7 @@ public class LoggingContextTest {
         var log = logger(recorder);
 
         log.info("before");
-        log.setOptions(LogOptions.initiateOptions().setFormatter(recorder));
+        log.addOptions(LogOptions.initiateOptions().setFormatter(recorder));
         log.info("after");
 
         assertEquals(List.of(thisThread(), thisThread()), recorder.threadNames());

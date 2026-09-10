@@ -8,26 +8,15 @@ public final class LoggingFactory {
 
     private static final Map<String, Loggable> LOGGERS = new ConcurrentHashMap<>();
 
-    public static Loggable get(String name) {
+    public static Loggable get(Class<?> type, LogOptions options) {
+        Objects.requireNonNull(type, "type");
+        return get(type.getName(), options);
+    }
+
+    public static Loggable get(String name, LogOptions options) {
         Objects.requireNonNull(name, "name");
-        return LOGGERS.computeIfAbsent(name, Logging::new);
-    }
-
-    public static Loggable get(Class<?> type) {
-        Objects.requireNonNull(type, "type");
-        return get(type.getName());
-    }
-
-    public static Loggable get(String name, LogFormatter formatter, LogOptions options) {
-        var logger = get(name);
-        logger.setFormatter(formatter);
-        logger.setOptions(options);
-        return logger;
-    }
-
-    public static Loggable get(Class<?> type, LogFormatter formatter, LogOptions options) {
-        Objects.requireNonNull(type, "type");
-        return get(type.getName(), formatter, options);
+        Objects.requireNonNull(options, "options");
+        return LOGGERS.computeIfAbsent(name, n -> Logging.create(n, options));
     }
 
     public static void add(String name, Loggable logger) {
