@@ -5,7 +5,6 @@ import java.nio.charset.StandardCharsets;
 import java.util.Collections;
 import java.util.IdentityHashMap;
 import java.util.Objects;
-import java.util.function.Supplier;
 
 public class Logging implements Loggable {
 
@@ -59,7 +58,7 @@ public class Logging implements Loggable {
 
     @Override
     public void log(LogLevel level, String message, Throwable thrown) {
-        if (level == LogLevel.OFF || level.severity() < this.currentLevel.severity()) {
+        if (level.severity() < this.currentLevel.severity()) {
             return;
         }
         var event = LogEvent.create(message, level, System.currentTimeMillis(), this.name, thrown);
@@ -117,9 +116,7 @@ public class Logging implements Loggable {
                     System.currentTimeMillis(), this.name, failure);
             this.printer.println(this.options.getFormatter().format(event));
         } catch (Exception alsoFailed) {
-            this.printer.println(LogLevel.color(LogLevel.ERROR)
-                    + "Failed to format log message: " + failure
-                    + LogLevel.color(LogLevel.OFF));
+            this.printer.println(LogLevel.coloredMessage("Failed to format log message: " + failure, LogLevel.ERROR));
         }
         // The caller only flushes for severe levels, but a dropped line is worth
         // seeing whatever level provoked it.

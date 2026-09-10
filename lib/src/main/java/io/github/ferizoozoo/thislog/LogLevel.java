@@ -1,7 +1,7 @@
 package io.github.ferizoozoo.thislog;
 
 public enum LogLevel {
-    TRACE(10), DEBUG(20), INFO(30), WARN(40), ERROR(50), FATAL(60), OFF(Integer.MAX_VALUE);
+    TRACE(10), DEBUG(20), INFO(30), WARN(40), ERROR(50), FATAL(60);
 
     private final int severity;
 
@@ -33,8 +33,16 @@ public enum LogLevel {
                 BLUE;
             case FATAL ->
                 RED;
-            case OFF ->
+            default ->
                 RESET;
         };
+    }
+
+    public static String coloredMessage(String message, LogLevel level) {
+        return color(level) + message + reset();
+    }
+
+    public static String reset() {
+        return RESET;
     }
 }

@@ -1159,7 +1159,28 @@ public class LoggingTest {
         assertEquals(YELLOW, LogLevel.color(LogLevel.WARN));
         assertEquals(RED, LogLevel.color(LogLevel.ERROR));
         assertEquals(RED, LogLevel.color(LogLevel.FATAL));
-        assertEquals(RESET, LogLevel.color(LogLevel.OFF));
+    }
+
+    @Test
+    public void theResetIsItsOwnThingRatherThanTheColourOfALevel() {
+        assertEquals("the reset used to be reachable only as color(OFF)",
+                RESET, LogLevel.reset());
+    }
+
+    @Test
+    public void everyLevelIsSomethingThatCanBeLoggedAt() {
+        // OFF is a threshold, not a level, so it is no longer in the enum and
+        // log(OFF, ...) no longer compiles.
+        for (LogLevel level : LogLevel.values()) {
+            assertNotEquals("a level worth logging at needs a colour of its own",
+                    RESET, LogLevel.color(level));
+        }
+    }
+
+    @Test
+    public void aColouredMessageIsWrappedInItsLevelAndClosedWithTheReset() {
+        assertEquals(YELLOW + "careful" + RESET,
+                LogLevel.coloredMessage("careful", LogLevel.WARN));
     }
 
     @Test
