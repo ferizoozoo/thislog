@@ -7,15 +7,18 @@ public class LogOptions {
     private LogOptions() {
     }
 
-    public static LogOptions initiateOptions() {
-        return fromEnvironment();
-    }
-
-    private static LogOptions fromEnvironment() {
+    public static LogOptions createFromEnvironment() {
         var options = new LogOptions();
         options.destination = LogDestination.create(System.getenv().getOrDefault("LOG_DESTINATION", "stdout"));
         options.formatter = PatternFormatter
                 .create(System.getenv().getOrDefault("LOG_FORMATTER", PatternFormatter.DEFAULT_PATTERN));
+        return options;
+    }
+
+    public static LogOptions createFromParameter(String destination, String formatter) {
+        var options = new LogOptions();
+        options.destination = LogDestination.create(destination);
+        options.formatter = PatternFormatter.create(formatter);
         return options;
     }
 

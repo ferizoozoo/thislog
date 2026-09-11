@@ -66,8 +66,8 @@ public class LevelFilteringTest {
     private Run run(Consumer<Loggable> action) throws Exception {
         File sink = tempFolder.newFile();
         var recorder = new Recorder();
-        var log = Logging.create(nextLoggerName(), LogOptions.initiateOptions());
-        log.addOptions(LogOptions.initiateOptions()
+        var log = Logging.create(nextLoggerName(), LogOptions.createFromEnvironment());
+        log.changeOptions(LogOptions.createFromEnvironment()
                 .setFormatter(recorder)
                 .setDestination(LogDestination.file(sink.getAbsolutePath())));
 
@@ -225,8 +225,8 @@ public class LevelFilteringTest {
     /** A logger on a counting stdout. The stream must be in place first. */
     private static Loggable loggerOn(CountingStream stream, Recorder recorder) {
         System.setOut(stream);
-        var log = Logging.create(nextLoggerName(), LogOptions.initiateOptions());
-        log.addOptions(LogOptions.initiateOptions()
+        var log = Logging.create(nextLoggerName(), LogOptions.createFromEnvironment());
+        log.changeOptions(LogOptions.createFromEnvironment()
                 .setFormatter(recorder)
                 .setDestination(LogDestination.STDOUT));
         return log;

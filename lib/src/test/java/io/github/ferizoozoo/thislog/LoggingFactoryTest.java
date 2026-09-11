@@ -201,16 +201,17 @@ public class LoggingFactoryTest {
 
     /** Options good enough to build a logger with; nothing is applied by them. */
     private static LogOptions plain() {
-        return LogOptions.initiateOptions();
+        return LogOptions.createFromEnvironment();
     }
 
     /**
-     * A registered logger with its options actually applied. The constructor
-     * drops the options it is handed, so addOptions is what configures it.
+     * A registered logger with its options actually applied. The factory
+     * only builds a logger the first time a name is asked for, so changeOptions
+     * is what configures one that may already exist.
      */
     private static Loggable registered(String name, LogFormatter formatter) {
         var log = LoggingFactory.get(name, plain());
-        log.addOptions(LogOptions.initiateOptions()
+        log.changeOptions(LogOptions.createFromEnvironment()
                 .setFormatter(formatter)
                 .setDestination(LogDestination.STDOUT));
         return log;

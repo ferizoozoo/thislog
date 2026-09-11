@@ -90,7 +90,7 @@ LogFormatter detailed = event -> String.format("%s %-5s [%s] %s - %s",
         event.getLoggerName(),
         event.getMessage());
 
-var log = LoggingFactory.get(OrderRouter.class, detailed, LogOptions.initiateOptions());
+var log = LoggingFactory.get(OrderRouter.class, detailed, LogOptions.createFromEnvironment());
 ```
 
 `PatternFormatter` is the one that ships. Today its pattern is a
@@ -104,9 +104,9 @@ ANSI escapes. It is opt-in, because it is only right on a terminal.
 ## Destinations
 
 ```java
-LogOptions.initiateOptions().setDestination(LogDestination.STDOUT)
-LogOptions.initiateOptions().setDestination(LogDestination.STDERR)
-LogOptions.initiateOptions().setDestination(LogDestination.file("app.log"))
+LogOptions.createFromEnvironment().setDestination(LogDestination.STDOUT)
+LogOptions.createFromEnvironment().setDestination(LogDestination.STDERR)
+LogOptions.createFromEnvironment().setDestination(LogDestination.file("app.log"))
 ```
 
 Files are opened in append mode and buffered; `ERROR` and above force a flush.

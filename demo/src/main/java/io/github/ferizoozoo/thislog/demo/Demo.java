@@ -35,22 +35,22 @@ public final class Demo {
 
     /**
      * A formatter takes effect through the options. The destination has to be
-     * named too: addOptions reads it unconditionally, so options without one
+     * named too: changeOptions reads it unconditionally, so options without one
      * fail and report a fallback that never happened.
      */
     private static LogOptions using(LogFormatter formatter) {
-        return LogOptions.initiateOptions()
+        return LogOptions.createFromEnvironment()
                 .setFormatter(formatter)
                 .setDestination(LogDestination.STDOUT);
     }
 
     /**
-     * The factory builds a logger but drops the options it is handed, so the
-     * same options have to be applied again once it exists.
+     * The factory only builds a logger the first time a name is asked for, so
+     * the options are applied again in case it already existed.
      */
     private static Loggable configured(String name, LogOptions options) {
         var log = LoggingFactory.get(name, options);
-        log.addOptions(options);
+        log.changeOptions(options);
         return log;
     }
 
@@ -125,7 +125,7 @@ public final class Demo {
 
         // A name this demo has not touched, so nothing is configured yet.
         var early = LoggingFactory.get("com.acme.orders.OrderRouter",
-                LogOptions.initiateOptions());
+                LogOptions.createFromEnvironment());
 
         // Somewhere else entirely, the same name is configured.
         var coloured = LogFormatter.colored(PatternFormatter.create("[orders] %s"));
@@ -135,7 +135,7 @@ public final class Demo {
         early.info("configured from somewhere else");
         System.out.println("   same instance: "
                 + (early == LoggingFactory.get("com.acme.orders.OrderRouter",
-                        LogOptions.initiateOptions())));
+                        LogOptions.createFromEnvironment())));
     }
 
     private static void heading(String title) {

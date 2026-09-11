@@ -6,7 +6,7 @@ public interface Loggable extends AutoCloseable {
     @Override
     void close();
 
-    void addOptions(LogOptions options);
+    void changeOptions(LogOptions options);
 
     void log(LogLevel level, String message, Throwable thrown);
 

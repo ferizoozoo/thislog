@@ -21,8 +21,8 @@ import org.junit.rules.TemporaryFolder;
  * What a logger does when the configuration it is handed cannot be applied, and
  * when the destination it did open stops accepting writes.
  *
- * <p>The constructor ignores its options supplier, so configuration reaches a
- * logger only through addOptions. The one failure that path can still hit is a
+ * <p>Configuration reaches a logger through its constructor and through
+ * changeOptions. The one failure those paths can still hit is a
  * destination that will not open; a PrintStream hides the rest behind a flag,
  * so neither is reachable from the other suites.
  */
@@ -64,15 +64,15 @@ public class LoggingStartupTest {
         return stderr.toString(StandardCharsets.UTF_8);
     }
 
-    /** A logger with the options applied, since the constructor drops them. */
+    /** A logger with the options applied. */
     private static Logging configured(String name, LogOptions options) {
-        var log = Logging.create(name, LogOptions.initiateOptions());
-        log.addOptions(options);
+        var log = Logging.create(name, LogOptions.createFromEnvironment());
+        log.changeOptions(options);
         return log;
     }
 
     private static LogOptions plainlyTo(LogDestination destination) {
-        return LogOptions.initiateOptions()
+        return LogOptions.createFromEnvironment()
                 .setDestination(destination)
                 .setFormatter(PatternFormatter.create(PatternFormatter.DEFAULT_PATTERN));
     }
@@ -231,7 +231,7 @@ public class LoggingStartupTest {
         // A new destination has not failed yet, so a later failure on it must
         // be reported again rather than swallowed by the earlier verdict.
         System.setOut(new PrintStream(stdout, true, StandardCharsets.UTF_8));
-        log.addOptions(plainlyTo(LogDestination.STDOUT));
+        log.changeOptions(plainlyTo(LogDestination.STDOUT));
         log.error("lands");
 
         assertEquals("lands" + NL, stdoutText());
@@ -256,9 +256,9 @@ public class LoggingStartupTest {
 
     @Test
     public void anUnconfiguredLoggerWritesWithTheEnvironmentDefaults() {
-        // The constructor drops the options it is handed, but initiateOptions
-        // resolves the environment, so the defaults are what a logger starts on.
-        var log = Logging.create("com.acme.Boot", LogOptions.initiateOptions());
+        // createFromEnvironment resolves the environment, so the defaults are
+        // what a logger starts on.
+        var log = Logging.create("com.acme.Boot", LogOptions.createFromEnvironment());
 
         log.info("plain by default");
 
@@ -270,7 +270,7 @@ public class LoggingStartupTest {
     public void aNameIsStillRequiredBeforeAnythingIsOpened() {
         var thrown = false;
         try {
-            Logging.create(null, LogOptions.initiateOptions());
+            Logging.create(null, LogOptions.createFromEnvironment());
         } catch (NullPointerException e) {
             thrown = true;
             assertEquals("name", e.getMessage());

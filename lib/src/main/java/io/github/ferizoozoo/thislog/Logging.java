@@ -23,32 +23,43 @@ public class Logging implements Loggable {
     private Logging(String name, LogOptions options) {
         this.name = Objects.requireNonNull(name, "name");
         this.options = Objects.requireNonNull(options, "options");
-
-        this.setPrinter(System.out, false);
-        this.options = LogOptions.initiateOptions();
+        this.setupPrinter();
     }
 
     public static Logging create(String name, LogOptions options) {
         return new Logging(name, options);
     }
 
-    @Override 
-    public void addOptions(LogOptions options) {
+    private void setupPrinter() {
         try {
-            this.options = options;
-            var dest = options.getDestination();
-            this.setPrinter(Utilities.LogDestinationToPrintStream(dest),
-                    dest instanceof LogDestination.LogFile);
+            var dest = this.options.getDestination();
+            this.printer = Utilities.LogDestinationToPrintStream(dest);
+            this.ownsPrinter = dest instanceof LogDestination.LogFile;
+            this.reportedWriteFailure = false;
         } catch (RuntimeException e) {
             System.err.println("thislog: cannot apply the logging configuration in the environment ("
                     + e + "); falling back to stdout");
+            // Keep a destination that is already working; only a logger with
+            // none yet (one still being constructed) needs stdout.
+            if (this.printer == null) {
+                this.resetPrinter();
+            }
         }
     }
 
-    private void setPrinter(PrintStream printer, boolean ownsPrinter) {
-        this.printer = printer;
-        this.ownsPrinter = ownsPrinter;
+    private void resetPrinter() {
+        if (this.ownsPrinter) {
+            this.printer.close();
+        }
+        this.printer = System.out;
+        this.ownsPrinter = false;
         this.reportedWriteFailure = false;
+    }
+
+    @Override
+    public void changeOptions(LogOptions options) {
+        this.options = options;
+        this.setupPrinter();
     }
 
     @Override
@@ -68,10 +79,7 @@ public class Logging implements Loggable {
     @Override
     public synchronized void close() {
         this.printer.flush();
-        if (this.ownsPrinter) {
-            this.printer.close();
-        }
-        this.setPrinter(System.out, false);
+        this.resetPrinter();
     }
 
     private synchronized void write(LogEvent logEvent) {
