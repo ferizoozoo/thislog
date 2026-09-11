@@ -8,6 +8,12 @@ public interface Loggable extends AutoCloseable {
 
     void changeOptions(LogOptions options);
 
+    LogLevel getCurrentLogLevel();
+
+    void setCurrentLogLevel(LogLevel level);
+
+    boolean isEnabled(LogLevel level);
+
     void log(LogLevel level, String message, Throwable thrown);
 
     default void trace(String message, Throwable thrown) {

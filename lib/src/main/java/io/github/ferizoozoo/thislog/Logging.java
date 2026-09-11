@@ -39,8 +39,6 @@ public class Logging implements Loggable {
         } catch (RuntimeException e) {
             System.err.println("thislog: cannot apply the logging configuration in the environment ("
                     + e + "); falling back to stdout");
-            // Keep a destination that is already working; only a logger with
-            // none yet (one still being constructed) needs stdout.
             if (this.printer == null) {
                 this.resetPrinter();
             }
@@ -65,6 +63,21 @@ public class Logging implements Loggable {
     @Override
     public String getName() {
         return this.name;
+    }
+
+    @Override
+    public LogLevel getCurrentLogLevel() {
+        return this.currentLevel;
+    }
+
+    @Override
+    public void setCurrentLogLevel(LogLevel level) {
+        this.currentLevel = Objects.requireNonNull(level, "level");
+    }
+
+    @Override
+    public boolean isEnabled(LogLevel level) {
+        return level.severity() >= this.currentLevel.severity();
     }
 
     @Override

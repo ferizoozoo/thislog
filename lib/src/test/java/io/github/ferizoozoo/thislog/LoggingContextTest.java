@@ -185,6 +185,19 @@ public class LoggingContextTest {
     }
 
     @Test
+    public void aDroppedMessageDoesNotCostTheNextOneItsThreadName() {
+        var recorder = new Recorder();
+        var log = logger(recorder);
+
+        log.setCurrentLogLevel(LogLevel.INFO);
+        log.debug("dropped before it reaches the formatter");
+        log.info("kept");
+
+        assertEquals("filtering a message must leave the next one intact",
+            thisThread(), recorder.forMessage("kept").getThreadName());
+    }
+
+    @Test
     public void aFailedFormatDoesNotCostTheNextMessageItsThreadName() {
         var formatter = new FailsOnce();
         var log = logger(formatter);

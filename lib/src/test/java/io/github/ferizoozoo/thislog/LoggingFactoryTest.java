@@ -96,6 +96,21 @@ public class LoggingFactoryTest {
     }
 
     @Test
+    public void aLevelSetOnOneNameLeavesAnotherAlone() {
+        var quietRecorder = new Recorder();
+        var loudRecorder = new Recorder();
+        var quiet = registered("com.acme.db", quietRecorder);
+        var loud = registered("com.acme.web", loudRecorder);
+
+        quiet.setCurrentLogLevel(LogLevel.ERROR);
+        quiet.info("suppressed");
+        loud.info("written");
+
+        assertEquals(List.of(), quietRecorder.messages);
+        assertEquals(List.of("written"), loudRecorder.messages);
+    }
+
+    @Test
     public void anExplicitlyAddedLoggerIsWhatTheNameResolvesTo() {
         var standIn = Logging.create("com.acme.db", plain());
 

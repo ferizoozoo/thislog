@@ -980,6 +980,19 @@ public class LoggingTest {
     }
 
     @Test
+    public void aSuppressedCallNeverRendersItsException() {
+        var formatter = new RecordingFormatter();
+        var log = logger(formatter);
+
+        log.setCurrentLogLevel(LogLevel.ERROR);
+        log.debug("expensive to render", new IllegalStateException("never rendered"));
+
+        assertEquals("rendering a stack trace is exactly the work a threshold should save",
+                List.of(), formatter.calls);
+        assertEquals("", stdoutText());
+    }
+
+    @Test
     public void theGeneralLogMethodIsUsableDirectly() {
         var formatter = new RecordingFormatter();
 

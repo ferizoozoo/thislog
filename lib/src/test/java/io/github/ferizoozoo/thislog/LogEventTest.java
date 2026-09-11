@@ -333,6 +333,17 @@ public class LogEventTest {
     }
 
     @Test
+    public void aFilteredCallNeverBuildsAnEventTheFormatterCanSee() {
+        var recorder = new EventRecorder();
+        var log = logger(recorder);
+
+        log.setCurrentLogLevel(LogLevel.ERROR);
+        log.info("below the threshold");
+
+        assertEquals(List.of(), recorder.events);
+    }
+
+    @Test
     public void theRecoveryPathBuildsItsOwnErrorEvent() {
         var recorder = new EventRecorder();
         var log = logger(new FailsOnceThenRecords(recorder));
