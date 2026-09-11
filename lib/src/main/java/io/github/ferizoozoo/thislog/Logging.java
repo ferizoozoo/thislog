@@ -56,7 +56,7 @@ public class Logging implements Loggable {
     }
 
     @Override
-    public void changeOptions(LogOptions options) {
+    public synchronized void changeOptions(LogOptions options) {
         this.options = options;
         this.setupPrinter();
     }
@@ -86,7 +86,15 @@ public class Logging implements Loggable {
         if (!isEnabled(level)) {
             return;
         }
-        var event = LogEvent.create(message.get(), level, System.currentTimeMillis(), this.name, thrown);
+
+        String text;
+        try {
+            text = message.get();
+        } catch (RuntimeException e) {
+            text = "[message supplier failed: " + e + "]";
+        }
+
+        var event = LogEvent.create(text, level, System.currentTimeMillis(), this.name, thrown);
         write(event);
     }
 

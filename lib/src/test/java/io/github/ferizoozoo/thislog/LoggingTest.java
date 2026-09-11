@@ -1064,6 +1064,48 @@ public class LoggingTest {
     }
 
     @Test
+    public void aFailingMessageSupplierDoesNotReachTheCaller() {
+        var log = logger(new RecordingFormatter());
+
+        // Reaching the next line at all is the assertion: a logging call is
+        // usually made from a failure path, and must not add a second failure.
+        log.info(() -> {
+            throw new IllegalStateException("could not build the message");
+        });
+
+        assertTrue("the logger should carry on afterwards", log.isEnabled(LogLevel.INFO));
+    }
+
+    @Test
+    public void aMessageThatCannotBeBuiltStillWritesItsThrowable() {
+        var formatter = new RecordingFormatter();
+        var log = logger(formatter);
+        var real = new IllegalStateException("payment declined");
+
+        log.error(() -> {
+            throw new NullPointerException("customer was null");
+        }, real);
+
+        assertTrue("the line should say the message could not be built, got: "
+                        + formatter.only().message(),
+                formatter.only().message().contains("message supplier failed"));
+        assertSame("the error being reported must survive a message that would not build",
+                real, formatter.only().thrown());
+    }
+
+    @Test
+    public void aNullMessageSupplierIsReportedRatherThanThrown() {
+        var formatter = new RecordingFormatter();
+        var log = logger(formatter);
+
+        log.info((Supplier<String>) null);
+
+        assertTrue("no message at all is reported the same way as one that would not build, got: "
+                        + formatter.only().message(),
+                formatter.only().message().contains("message supplier failed"));
+    }
+
+    @Test
     public void theGeneralLogMethodIsUsableDirectly() {
         var formatter = new RecordingFormatter();
 
