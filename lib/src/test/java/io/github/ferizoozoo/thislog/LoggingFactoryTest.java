@@ -68,7 +68,7 @@ public class LoggingFactoryTest {
         var recorder = new Recorder();
 
         registered("com.acme.db", recorder);
-        held.info("through the handle taken before configuration");
+        held.info(() -> "through the handle taken before configuration");
 
         assertEquals(List.of("through the handle taken before configuration"), recorder.messages);
     }
@@ -88,8 +88,8 @@ public class LoggingFactoryTest {
         var db = registered("com.acme.db", dbRecorder);
         var web = registered("com.acme.web", webRecorder);
 
-        db.info("for the database logger");
-        web.info("for the web logger");
+        db.info(() -> "for the database logger");
+        web.info(() -> "for the web logger");
 
         assertEquals(List.of("for the database logger"), dbRecorder.messages);
         assertEquals(List.of("for the web logger"), webRecorder.messages);
@@ -103,8 +103,8 @@ public class LoggingFactoryTest {
         var loud = registered("com.acme.web", loudRecorder);
 
         quiet.setCurrentLogLevel(LogLevel.ERROR);
-        quiet.info("suppressed");
-        loud.info("written");
+        quiet.info(() -> "suppressed");
+        loud.info(() -> "written");
 
         assertEquals(List.of(), quietRecorder.messages);
         assertEquals(List.of("written"), loudRecorder.messages);
@@ -186,8 +186,8 @@ public class LoggingFactoryTest {
         var recorder = new EventRecorder();
         var log = registered("com.acme.db", recorder);
 
-        log.info("through a convenience method");
-        log.error("with a throwable", new IllegalStateException("boom"));
+        log.info(() -> "through a convenience method");
+        log.error(() -> "with a throwable", new IllegalStateException("boom"));
 
         assertEquals(List.of("com.acme.db", "com.acme.db"),
                 recorder.events.stream().map(LogEvent::getLoggerName).toList());
@@ -197,8 +197,8 @@ public class LoggingFactoryTest {
     public void twoLoggersStampTheirOwnNamesNotEachOthers() {
         var dbRecorder = new EventRecorder();
         var webRecorder = new EventRecorder();
-        registered("com.acme.db", dbRecorder).info("query ran");
-        registered("com.acme.web", webRecorder).info("request served");
+        registered("com.acme.db", dbRecorder).info(() -> "query ran");
+        registered("com.acme.web", webRecorder).info(() -> "request served");
 
         assertEquals("com.acme.db", dbRecorder.events.get(0).getLoggerName());
         assertEquals("com.acme.web", webRecorder.events.get(0).getLoggerName());
@@ -208,7 +208,7 @@ public class LoggingFactoryTest {
     public void aLoggerTakenBeforeAnyConfigurationStillWrites() {
         var log = LoggingFactory.get("com.acme.unconfigured", plain());
 
-        log.info("no formatter was ever set");
+        log.info(() -> "no formatter was ever set");
 
         assertEquals("the default options carry a formatter, so the line lands",
                 "no formatter was ever set" + System.lineSeparator(), written.toString());

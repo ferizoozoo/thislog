@@ -79,23 +79,23 @@ public class LevelFilteringTest {
 
     /** Logs one message at every level, in ascending severity. */
     private static void logEveryLevel(Loggable log) {
-        log.trace("trace message");
-        log.debug("debug message");
-        log.info("info message");
-        log.warn("warn message");
-        log.error("error message");
-        log.fatal("fatal message");
+        log.trace(() -> "trace message");
+        log.debug(() -> "debug message");
+        log.info(() -> "info message");
+        log.warn(() -> "warn message");
+        log.error(() -> "error message");
+        log.fatal(() -> "fatal message");
     }
 
     /** Calls the method matching {@code level}. */
     private static void logAt(Loggable log, LogLevel level, String message) {
         switch (level) {
-            case TRACE -> log.trace(message);
-            case DEBUG -> log.debug(message);
-            case INFO -> log.info(message);
-            case WARN -> log.warn(message);
-            case ERROR -> log.error(message);
-            default -> log.fatal(message);
+            case TRACE -> log.trace(() -> message);
+            case DEBUG -> log.debug(() -> message);
+            case INFO -> log.info(() -> message);
+            case WARN -> log.warn(() -> message);
+            case ERROR -> log.error(() -> message);
+            default -> log.fatal(() -> message);
         }
     }
 
@@ -113,7 +113,7 @@ public class LevelFilteringTest {
 
     @Test
     public void traceIsWrittenAtTheDefaultLevel() throws Exception {
-        Run run = run(log -> log.trace("Tracing"));
+        Run run = run(log -> log.trace(() -> "Tracing"));
 
         assertEquals("the threshold starts at TRACE, so nothing is filtered",
             List.of("TRACE"), run.levelsWritten());
@@ -121,14 +121,14 @@ public class LevelFilteringTest {
 
     @Test
     public void debugIsWrittenAtTheDefaultLevel() throws Exception {
-        Run run = run(log -> log.debug("chatter"));
+        Run run = run(log -> log.debug(() -> "chatter"));
 
         assertEquals(List.of("DEBUG"), run.levelsWritten());
     }
 
     @Test
     public void infoIsWrittenAtTheDefaultLevel() throws Exception {
-        Run run = run(log -> log.info("visible"));
+        Run run = run(log -> log.info(() -> "visible"));
 
         assertEquals(List.of("INFO"), run.levelsWritten());
     }
@@ -165,7 +165,7 @@ public class LevelFilteringTest {
     public void raisingTheThresholdSilencesInfo() throws Exception {
         Run run = run(log -> {
             log.setCurrentLogLevel(LogLevel.ERROR);
-            log.info("below the threshold");
+            log.info(() -> "below the threshold");
         });
 
         assertEquals("INFO is less severe than ERROR, so it is dropped",
@@ -176,7 +176,7 @@ public class LevelFilteringTest {
     public void raisingTheThresholdSilencesWarn() throws Exception {
         Run run = run(log -> {
             log.setCurrentLogLevel(LogLevel.ERROR);
-            log.warn("below the threshold");
+            log.warn(() -> "below the threshold");
         });
 
         assertEquals(List.of(), run.levelsWritten());
@@ -186,7 +186,7 @@ public class LevelFilteringTest {
     public void raisingTheThresholdAboveDebugSilencesIt() throws Exception {
         Run run = run(log -> {
             log.setCurrentLogLevel(LogLevel.INFO);
-            log.debug("hidden");
+            log.debug(() -> "hidden");
         });
 
         assertEquals(List.of(), run.levelsWritten());
@@ -211,7 +211,7 @@ public class LevelFilteringTest {
     public void aLevelExactlyAtTheThresholdIsWritten() throws Exception {
         Run run = run(log -> {
             log.setCurrentLogLevel(LogLevel.WARN);
-            log.warn("at the boundary");
+            log.warn(() -> "at the boundary");
         });
 
         assertEquals("the comparison is at-or-above, not strictly above",
@@ -222,7 +222,7 @@ public class LevelFilteringTest {
     public void theLevelOneStepBelowTheThresholdIsDropped() throws Exception {
         Run run = run(log -> {
             log.setCurrentLogLevel(LogLevel.WARN);
-            log.info("just under");
+            log.info(() -> "just under");
         });
 
         assertEquals(List.of(), run.levelsWritten());
@@ -232,7 +232,7 @@ public class LevelFilteringTest {
     public void theLevelOneStepAboveTheThresholdIsWritten() throws Exception {
         Run run = run(log -> {
             log.setCurrentLogLevel(LogLevel.WARN);
-            log.error("just over");
+            log.error(() -> "just over");
         });
 
         assertEquals(List.of("ERROR"), run.levelsWritten());
@@ -246,7 +246,7 @@ public class LevelFilteringTest {
     public void aSuppressedMessageIsNeverEvenFormatted() throws Exception {
         Run run = run(log -> {
             log.setCurrentLogLevel(LogLevel.INFO);
-            log.debug("expensive");
+            log.debug(() -> "expensive");
         });
 
         assertEquals("the formatter must not be called for a filtered level",
@@ -257,11 +257,11 @@ public class LevelFilteringTest {
     public void aSuppressedMessageOfAnyLevelIsNeverEvenFormatted() throws Exception {
         Run run = run(log -> {
             log.setCurrentLogLevel(LogLevel.FATAL);
-            log.trace("expensive");
-            log.debug("expensive");
-            log.info("expensive");
-            log.warn("expensive");
-            log.error("expensive");
+            log.trace(() -> "expensive");
+            log.debug(() -> "expensive");
+            log.info(() -> "expensive");
+            log.warn(() -> "expensive");
+            log.error(() -> "expensive");
         });
 
         assertEquals("suppression must not depend on which level was dropped",
@@ -287,7 +287,7 @@ public class LevelFilteringTest {
     public void loweringTheThresholdLetsVerboseLevelsThrough() throws Exception {
         Run run = run(log -> {
             log.setCurrentLogLevel(LogLevel.TRACE);
-            log.trace("now visible");
+            log.trace(() -> "now visible");
         });
 
         assertEquals(List.of("TRACE"), run.levelsWritten());
@@ -297,7 +297,7 @@ public class LevelFilteringTest {
     public void loweringTheThresholdToTraceLetsDebugThroughToo() throws Exception {
         Run run = run(log -> {
             log.setCurrentLogLevel(LogLevel.TRACE);
-            log.debug("now visible");
+            log.debug(() -> "now visible");
         });
 
         assertEquals(List.of("DEBUG"), run.levelsWritten());
@@ -307,9 +307,9 @@ public class LevelFilteringTest {
     public void loweringTheThresholdAgainRestoresWhatItHadSilenced() throws Exception {
         Run run = run(log -> {
             log.setCurrentLogLevel(LogLevel.ERROR);
-            log.info("silenced");
+            log.info(() -> "silenced");
             log.setCurrentLogLevel(LogLevel.INFO);
-            log.info("audible again");
+            log.info(() -> "audible again");
         });
 
         assertEquals("raising the threshold must not be a one-way door",
@@ -319,9 +319,9 @@ public class LevelFilteringTest {
     @Test
     public void onlyTheThresholdInForceWhenTheCallIsMadeApplies() throws Exception {
         Run run = run(log -> {
-            log.info("written under the default threshold");
+            log.info(() -> "written under the default threshold");
             log.setCurrentLogLevel(LogLevel.FATAL);
-            log.info("dropped under the raised one");
+            log.info(() -> "dropped under the raised one");
         });
 
         assertEquals(List.of("INFO"), run.levelsWritten());
@@ -335,8 +335,8 @@ public class LevelFilteringTest {
     public void everyLevelAtOrAboveTheThresholdIsWrittenRegardlessOfOrder() throws Exception {
         Run run = run(log -> {
             log.setCurrentLogLevel(LogLevel.INFO);
-            log.error("first, high severity");
-            log.info("second, lower severity but still at or above INFO");
+            log.error(() -> "first, high severity");
+            log.info(() -> "second, lower severity but still at or above INFO");
         });
 
         assertEquals(List.of("ERROR", "INFO"), run.levelsWritten());
@@ -345,9 +345,9 @@ public class LevelFilteringTest {
     @Test
     public void loggingDoesNotRaiseTheThresholdForLaterMessages() throws Exception {
         Run run = run(log -> {
-            log.fatal("a one-off fatal");
-            log.info("routine work continues");
-            log.warn("and so does this");
+            log.fatal(() -> "a one-off fatal");
+            log.info(() -> "routine work continues");
+            log.warn(() -> "and so does this");
         });
 
         assertEquals("a single high-severity line must not silence what follows",
@@ -358,10 +358,10 @@ public class LevelFilteringTest {
     public void aDroppedMessageDoesNotDisturbTheThreshold() throws Exception {
         Run run = run(log -> {
             log.setCurrentLogLevel(LogLevel.INFO);
-            log.debug("dropped");
-            log.info("still audible");
-            log.debug("dropped");
-            log.info("still audible");
+            log.debug(() -> "dropped");
+            log.info(() -> "still audible");
+            log.debug(() -> "dropped");
+            log.info(() -> "still audible");
         });
 
         assertEquals(List.of("INFO", "INFO"), run.levelsWritten());
@@ -370,9 +370,9 @@ public class LevelFilteringTest {
     @Test
     public void theThresholdSurvivesRepeatedLoggingAtTheSameLevel() throws Exception {
         Run run = run(log -> {
-            log.info("one");
-            log.info("two");
-            log.info("three");
+            log.info(() -> "one");
+            log.info(() -> "two");
+            log.info(() -> "three");
         });
 
         assertEquals(List.of("INFO", "INFO", "INFO"), run.levelsWritten());
@@ -393,8 +393,8 @@ public class LevelFilteringTest {
                 .setDestination(LogDestination.file(sink.getAbsolutePath())));
 
         quiet.setCurrentLogLevel(LogLevel.ERROR);
-        quiet.info("dropped");
-        loud.info("written");
+        quiet.info(() -> "dropped");
+        loud.info(() -> "written");
 
         assertEquals("raising one logger's threshold must not raise another's",
             List.of(), quietRecorder.levels);
@@ -486,10 +486,10 @@ public class LevelFilteringTest {
         var log = loggerOn(counting, new Recorder());
 
         log.setCurrentLogLevel(LogLevel.ERROR);
-        log.trace("suppressed");
-        log.debug("suppressed");
-        log.info("suppressed");
-        log.warn("suppressed");
+        log.trace(() -> "suppressed");
+        log.debug(() -> "suppressed");
+        log.info(() -> "suppressed");
+        log.warn(() -> "suppressed");
 
         assertEquals("a filtered message must not even flush the stream",
             0, counting.flushes.get());
@@ -501,8 +501,8 @@ public class LevelFilteringTest {
         var log = loggerOn(counting, new Recorder());
 
         log.setCurrentLogLevel(LogLevel.ERROR);
-        log.info("suppressed");
-        log.error("kept");
+        log.info(() -> "suppressed");
+        log.error(() -> "kept");
 
         assertEquals("exactly the kept message should reach the stream",
             1, counting.flushes.get());
@@ -521,7 +521,7 @@ public class LevelFilteringTest {
         configurer.join(5_000);
         assertFalse("configurer did not finish", configurer.isAlive());
 
-        log.info("below the threshold set elsewhere");
+        log.info(() -> "below the threshold set elsewhere");
 
         assertEquals(List.of(), recorder.levels);
     }

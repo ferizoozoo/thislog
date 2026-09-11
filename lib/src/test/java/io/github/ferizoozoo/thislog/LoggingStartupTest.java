@@ -88,7 +88,7 @@ public class LoggingStartupTest {
         var log = configured("com.acme.Boot",
                 plainlyTo(LogDestination.file(directory.getAbsolutePath())));
 
-        log.info("the application carries on");
+        log.info(() -> "the application carries on");
 
         assertEquals("a logger whose configuration would not apply should still write",
                 "the application carries on" + NL, stdoutText());
@@ -123,7 +123,7 @@ public class LoggingStartupTest {
         var log = configured("com.acme.Boot",
                 plainlyTo(LogDestination.file(directory.getAbsolutePath())));
 
-        log.info("still audible");
+        log.info(() -> "still audible");
 
         assertEquals("a file that cannot be opened should not silence the logger",
                 "still audible" + NL, stdoutText());
@@ -137,7 +137,7 @@ public class LoggingStartupTest {
 
         var log = configured("com.acme.Boot",
                 plainlyTo(LogDestination.file(sink.getAbsolutePath())));
-        log.error("to the file");
+        log.error(() -> "to the file");
 
         assertEquals("nothing went wrong, so nothing should be said", "", stderrText());
         assertEquals("", stdoutText());
@@ -159,11 +159,11 @@ public class LoggingStartupTest {
                 plainlyTo(LogDestination.file(sink.getAbsolutePath())));
 
         // INFO is below FLUSH_THRESHOLD, so this only reaches the buffer.
-        log.info("buffered");
+        log.info(() -> "buffered");
         log.close();
 
         assertEquals("buffered" + NL, Files.readString(sink.toPath(), StandardCharsets.UTF_8));
-        log.info("after closing");
+        log.info(() -> "after closing");
         assertEquals("a closed logger falls back to stdout", "after closing" + NL, stdoutText());
     }
 
@@ -191,7 +191,7 @@ public class LoggingStartupTest {
         System.setOut(refusingStream());
         var log = configured("com.acme.Boot", plainlyTo(LogDestination.STDOUT));
 
-        log.error("this never lands");
+        log.error(() -> "this never lands");
 
         assertTrue("a silent write failure should still be announced, got: " + stderrText(),
                 stderrText().contains("com.acme.Boot"));
@@ -204,7 +204,7 @@ public class LoggingStartupTest {
         var log = configured("com.acme.Boot", plainlyTo(LogDestination.STDOUT));
 
         for (int i = 0; i < 20; i++) {
-            log.error("this never lands");
+            log.error(() -> "this never lands");
         }
 
         assertEquals("one broken destination is one notice, not twenty",
@@ -215,7 +215,7 @@ public class LoggingStartupTest {
     public void aWorkingDestinationIsNeverReported() {
         var log = configured("com.acme.Boot", plainlyTo(LogDestination.STDOUT));
 
-        log.error("this lands");
+        log.error(() -> "this lands");
 
         assertEquals("this lands" + NL, stdoutText());
         assertEquals("nothing failed, so nothing should be said", "", stderrText());
@@ -225,14 +225,14 @@ public class LoggingStartupTest {
     public void movingToAWorkingDestinationEarnsAFreshVerdict() {
         System.setOut(refusingStream());
         var log = configured("com.acme.Boot", plainlyTo(LogDestination.STDOUT));
-        log.error("lost");
+        log.error(() -> "lost");
         assertTrue(stderrText().contains("log output may be lost"));
 
         // A new destination has not failed yet, so a later failure on it must
         // be reported again rather than swallowed by the earlier verdict.
         System.setOut(new PrintStream(stdout, true, StandardCharsets.UTF_8));
         log.changeOptions(plainlyTo(LogDestination.STDOUT));
-        log.error("lands");
+        log.error(() -> "lands");
 
         assertEquals("lands" + NL, stdoutText());
         assertEquals("one notice from the destination that actually failed",
@@ -244,7 +244,7 @@ public class LoggingStartupTest {
         System.setOut(refusingStream());
         var log = configured("com.acme.Boot", plainlyTo(LogDestination.STDOUT));
 
-        log.info("below the flush threshold");
+        log.info(() -> "below the flush threshold");
 
         assertFalse("checkError flushes, so it is only consulted where a flush already happens",
                 stderrText().contains("log output may be lost"));
@@ -260,7 +260,7 @@ public class LoggingStartupTest {
         // what a logger starts on.
         var log = Logging.create("com.acme.Boot", LogOptions.createFromEnvironment());
 
-        log.info("plain by default");
+        log.info(() -> "plain by default");
 
         assertEquals("plain by default" + NL, stdoutText());
         assertEquals("the default configuration is not a failure", "", stderrText());

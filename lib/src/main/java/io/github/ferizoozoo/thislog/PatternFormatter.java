@@ -15,6 +15,7 @@ public class PatternFormatter implements LogFormatter {
         return new PatternFormatter(pattern);
     }
 
+    // TODO: It should receive parameters and not just the message, but for now, it will only receive the message.
     @Override
     public String format(LogEvent event) {
         return String.format(this.pattern, event.getMessage());

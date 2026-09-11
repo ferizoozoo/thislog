@@ -62,20 +62,20 @@ public final class Demo {
         heading("1. The default pattern renders the message and nothing else");
         var plain = PatternFormatter.create(PatternFormatter.DEFAULT_PATTERN);
         var log = configured("com.acme.Bootstrap", using(plain));
-        log.info("server started on port 8080");
-        log.warn("cache is 91% full");
+        log.info(() -> "server started on port 8080");
+        log.warn(() -> "cache is 91% full");
     }
 
     private static void colourIsOptedInto() {
         heading("2. LogFormatter.colored wraps any layout for a terminal");
         var coloured = LogFormatter.colored(PatternFormatter.create("%s"));
         var log = configured("com.acme.checkout.CheckoutFlow", using(coloured));
-        log.trace("entering checkout flow");
-        log.debug("resolved 3 candidate routes");
-        log.info("payment authorised");
-        log.warn("retrying upstream call");
-        log.error("could not reach inventory service");
-        log.fatal("shutting down");
+        log.trace(() -> "entering checkout flow");
+        log.debug(() -> "resolved 3 candidate routes");
+        log.info(() -> "payment authorised");
+        log.warn(() -> "retrying upstream call");
+        log.error(() -> "could not reach inventory service");
+        log.fatal(() -> "shutting down");
     }
 
     private static void aLayoutCanUseEverythingTheEventCarries() {
@@ -89,8 +89,8 @@ public final class Demo {
 
         var coloured = LogFormatter.colored(detailed);
         var log = configured(Demo.class, using(coloured));
-        log.info("order 4711 accepted");
-        log.warn("stock running low");
+        log.info(() -> "order 4711 accepted");
+        log.warn(() -> "stock running low");
     }
 
     private static void anExceptionRidesUnderItsLine() {
@@ -98,7 +98,7 @@ public final class Demo {
         var coloured = LogFormatter.colored(PatternFormatter.create("%s"));
         var log = configured("com.acme.billing.Pricing", using(coloured));
         var cause = new IllegalArgumentException("negative quantity: -3");
-        log.error("could not price the basket", new IllegalStateException("pricing failed", cause));
+        log.error(() -> "could not price the basket", new IllegalStateException("pricing failed", cause));
     }
 
     private static void aFileGetsCleanText() throws Exception {
@@ -108,8 +108,8 @@ public final class Demo {
         var plain = PatternFormatter.create(PatternFormatter.DEFAULT_PATTERN);
         var log = configured("com.acme.audit.AuditTrail",
                 using(plain).setDestination(LogDestination.file(sink.toString())));
-        log.info("user signed in");
-        log.error("checkout failed");
+        log.info(() -> "user signed in");
+        log.error(() -> "checkout failed");
 
         log.close();
 
@@ -132,7 +132,7 @@ public final class Demo {
         configured("com.acme.orders.OrderRouter", using(coloured));
 
         // The handle taken before that already has the new configuration.
-        early.info("configured from somewhere else");
+        early.info(() -> "configured from somewhere else");
         System.out.println("   same instance: "
                 + (early == LoggingFactory.get("com.acme.orders.OrderRouter",
                         LogOptions.createFromEnvironment())));

@@ -139,7 +139,7 @@ public class LoggingContextTest {
     public void theFirstMessageCarriesTheThreadName() {
         var recorder = new Recorder();
 
-        logger(recorder).info("first");
+        logger(recorder).info(() -> "first");
 
         assertEquals(thisThread(), recorder.only().getThreadName());
     }
@@ -149,8 +149,8 @@ public class LoggingContextTest {
         var recorder = new Recorder();
         var log = logger(recorder);
 
-        log.info("first");
-        log.info("second");
+        log.info(() -> "first");
+        log.info(() -> "second");
 
         assertEquals("logging a message must read the thread, not consume anything",
             List.of(thisThread(), thisThread()), recorder.threadNames());
@@ -162,7 +162,8 @@ public class LoggingContextTest {
         var log = logger(recorder);
 
         for (int i = 0; i < 50; i++) {
-            log.info("message " + i);
+            int n = i;
+            log.info(() -> "message " + n);
         }
 
         assertEquals(50, recorder.events.size());
@@ -174,12 +175,12 @@ public class LoggingContextTest {
         var recorder = new Recorder();
         var log = logger(recorder);
 
-        log.trace("t");
-        log.debug("d");
-        log.info("i");
-        log.warn("w");
-        log.error("e");
-        log.fatal("f");
+        log.trace(() -> "t");
+        log.debug(() -> "d");
+        log.info(() -> "i");
+        log.warn(() -> "w");
+        log.error(() -> "e");
+        log.fatal(() -> "f");
 
         assertEquals(Collections.nCopies(6, thisThread()), recorder.threadNames());
     }
@@ -190,8 +191,8 @@ public class LoggingContextTest {
         var log = logger(recorder);
 
         log.setCurrentLogLevel(LogLevel.INFO);
-        log.debug("dropped before it reaches the formatter");
-        log.info("kept");
+        log.debug(() -> "dropped before it reaches the formatter");
+        log.info(() -> "kept");
 
         assertEquals("filtering a message must leave the next one intact",
             thisThread(), recorder.forMessage("kept").getThreadName());
@@ -202,8 +203,8 @@ public class LoggingContextTest {
         var formatter = new FailsOnce();
         var log = logger(formatter);
 
-        log.info("this one blows the formatter up");
-        log.info("this one should still be intact");
+        log.info(() -> "this one blows the formatter up");
+        log.info(() -> "this one should still be intact");
 
         assertEquals("the recovery path must not leave the next event stripped",
             thisThread(),
@@ -215,9 +216,9 @@ public class LoggingContextTest {
         var recorder = new Recorder();
         var log = logger(recorder);
 
-        log.info("before");
+        log.info(() -> "before");
         log.changeOptions(LogOptions.createFromEnvironment().setFormatter(recorder));
-        log.info("after");
+        log.info(() -> "after");
 
         assertEquals(List.of(thisThread(), thisThread()), recorder.threadNames());
     }
@@ -231,7 +232,7 @@ public class LoggingContextTest {
         var recorder = new Recorder();
         var log = logger(recorder);
 
-        onThreadNamed("worker", () -> log.info("logged elsewhere"));
+        onThreadNamed("worker", () -> log.info(() -> "logged elsewhere"));
 
         assertEquals("the name is read when the message is logged, not when the logger is built",
             "worker", recorder.only().getThreadName());
@@ -244,7 +245,7 @@ public class LoggingContextTest {
         var built = new AtomicReference<Loggable>();
 
         onThreadNamed("builder", () -> built.set(logger(recorder)));
-        built.get().info("logged on the test thread");
+        built.get().info(() -> "logged on the test thread");
 
         assertEquals(thisThread(), recorder.only().getThreadName());
     }
@@ -254,9 +255,9 @@ public class LoggingContextTest {
         var recorder = new Recorder();
         var log = logger(recorder);
 
-        onThreadNamed("worker-one", () -> log.info("one"));
-        onThreadNamed("worker-two", () -> log.info("two"));
-        log.info("three");
+        onThreadNamed("worker-one", () -> log.info(() -> "one"));
+        onThreadNamed("worker-two", () -> log.info(() -> "two"));
+        log.info(() -> "three");
 
         assertEquals("worker-one", recorder.forMessage("one").getThreadName());
         assertEquals("worker-two", recorder.forMessage("two").getThreadName());
@@ -268,9 +269,9 @@ public class LoggingContextTest {
         var recorder = new Recorder();
         var log = logger(recorder);
 
-        log.info("before the worker ran");
-        onThreadNamed("worker", () -> log.info("on the worker"));
-        log.info("after the worker ran");
+        log.info(() -> "before the worker ran");
+        onThreadNamed("worker", () -> log.info(() -> "on the worker"));
+        log.info(() -> "after the worker ran");
 
         assertEquals(thisThread(), recorder.forMessage("before the worker ran").getThreadName());
         assertEquals("worker", recorder.forMessage("on the worker").getThreadName());
@@ -284,8 +285,8 @@ public class LoggingContextTest {
         var log = logger(recorder);
 
         onThreadNamed("worker", () -> {
-            log.info("first on this thread");
-            log.info("second on this thread");
+            log.info(() -> "first on this thread");
+            log.info(() -> "second on this thread");
         });
 
         assertEquals(List.of("worker", "worker"), recorder.threadNames());
@@ -300,14 +301,16 @@ public class LoggingContextTest {
         var one = new Thread(() -> {
             await(start);
             for (int i = 0; i < 25; i++) {
-                log.info("one-" + i);
+                int n = i;
+                log.info(() -> "one-" + n);
             }
         }, "racer-one");
 
         var two = new Thread(() -> {
             await(start);
             for (int i = 0; i < 25; i++) {
-                log.info("two-" + i);
+                int n = i;
+                log.info(() -> "two-" + n);
             }
         }, "racer-two");
 

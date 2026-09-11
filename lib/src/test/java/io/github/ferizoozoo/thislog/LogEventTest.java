@@ -288,7 +288,7 @@ public class LogEventTest {
     public void theLoggerBuildsAnEventCarryingTheCallItWasGiven() {
         var recorder = new EventRecorder();
 
-        logger(recorder).warn("disk filling up");
+        logger(recorder).warn(() -> "disk filling up");
 
         assertEquals("disk filling up", recorder.only().getMessage());
         assertEquals(LogLevel.WARN, recorder.only().getLevel());
@@ -299,7 +299,7 @@ public class LogEventTest {
         var recorder = new EventRecorder();
 
         long before = System.currentTimeMillis();
-        logger(recorder).info("stamped now");
+        logger(recorder).info(() -> "stamped now");
         long after = System.currentTimeMillis();
 
         long stamped = recorder.only().getTimestamp();
@@ -312,7 +312,7 @@ public class LogEventTest {
         var recorder = new EventRecorder();
         var log = logger(recorder);
 
-        onThreadNamed("worker-1", () -> log.info("logged elsewhere"));
+        onThreadNamed("worker-1", () -> log.info(() -> "logged elsewhere"));
 
         assertEquals("worker-1", recorder.only().getThreadName());
         assertNotEquals(Thread.currentThread().getName(), recorder.only().getThreadName());
@@ -323,8 +323,8 @@ public class LogEventTest {
         var recorder = new EventRecorder();
         var log = logger(recorder);
 
-        log.info("first");
-        log.info("second");
+        log.info(() -> "first");
+        log.info(() -> "second");
 
         assertEquals(2, recorder.events.size());
         assertNotSame(recorder.events.get(0), recorder.events.get(1));
@@ -338,7 +338,7 @@ public class LogEventTest {
         var log = logger(recorder);
 
         log.setCurrentLogLevel(LogLevel.ERROR);
-        log.info("below the threshold");
+        log.info(() -> "below the threshold");
 
         assertEquals(List.of(), recorder.events);
     }
@@ -349,7 +349,7 @@ public class LogEventTest {
         var log = logger(new FailsOnceThenRecords(recorder));
 
         long before = System.currentTimeMillis();
-        log.info("never formatted");
+        log.info(() -> "never formatted");
         long after = System.currentTimeMillis();
 
         LogEvent recovery = recorder.only();
@@ -381,7 +381,7 @@ public class LogEventTest {
                     + logEvent.getMessage();
         };
 
-        logger(everything).warn("disk filling up");
+        logger(everything).warn(() -> "disk filling up");
 
         assertEquals(seen.get().getTimestamp() + " [WARN] ("
                         + Thread.currentThread().getName() + ") disk filling up" + NL,
@@ -390,14 +390,14 @@ public class LogEventTest {
 
     @Test
     public void theShippedFormatterReadsTheMessageOffTheEvent() {
-        logger(PatternFormatter.create(PatternFormatter.DEFAULT_PATTERN)).info("Hello, World!");
+        logger(PatternFormatter.create(PatternFormatter.DEFAULT_PATTERN)).info(() -> "Hello, World!");
 
         assertEquals("Hello, World!" + NL, stdoutText());
     }
 
     @Test
     public void aNullMessageDoesNotBringTheLoggerDown() {
-        logger(PatternFormatter.create("%s")).info(null);
+        logger(PatternFormatter.create("%s")).info(() -> null);
 
         assertEquals("a null message should render as null rather than throw",
                 "null" + NL, stdoutText());

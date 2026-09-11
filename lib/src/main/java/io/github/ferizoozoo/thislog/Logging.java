@@ -5,6 +5,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.Collections;
 import java.util.IdentityHashMap;
 import java.util.Objects;
+import java.util.function.Supplier;
 
 public class Logging implements Loggable {
 
@@ -81,11 +82,11 @@ public class Logging implements Loggable {
     }
 
     @Override
-    public void log(LogLevel level, String message, Throwable thrown) {
-        if (level.severity() < this.currentLevel.severity()) {
+    public void log(LogLevel level, Supplier<String> message, Throwable thrown) {
+        if (!isEnabled(level)) {
             return;
         }
-        var event = LogEvent.create(message, level, System.currentTimeMillis(), this.name, thrown);
+        var event = LogEvent.create(message.get(), level, System.currentTimeMillis(), this.name, thrown);
         write(event);
     }
 
