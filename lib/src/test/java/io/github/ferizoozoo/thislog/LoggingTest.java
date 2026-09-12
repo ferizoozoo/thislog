@@ -8,6 +8,9 @@ import java.io.File;
 import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -1206,6 +1209,85 @@ public class LoggingTest {
                         .format(LogEvent.create("Hello, World!", LogLevel.INFO, AT, NAME)));
     }
 
+    // ---------------------------------------------------------------------
+    // The pattern language. A conversion is rendered only when the pattern
+    // names it, so the default stays a bare message.
+    // ---------------------------------------------------------------------
+
+    /** The event the pattern tests render, fixed in every field. */
+    private static LogEvent theEvent() {
+        return LogEvent.create("Careful", LogLevel.WARN, AT, NAME);
+    }
+
+    private static String rendered(String pattern) {
+        return PatternFormatter.create(pattern).format(theEvent());
+    }
+
+    @Test
+    public void everyNameForTheMessageRendersTheMessage() {
+        for (String conversion : List.of("%m", "%msg", "%message", "%s")) {
+            assertEquals(conversion + " should render the message",
+                    "Careful", rendered(conversion));
+        }
+    }
+
+    @Test
+    public void theLevelTheLoggerNameAndTheThreadAreReachableFromAPattern() {
+        assertEquals("WARN", rendered("%level"));
+        assertEquals(NAME, rendered("%logger"));
+        assertEquals(Thread.currentThread().getName(), rendered("%thread"));
+    }
+
+    @Test
+    public void theTimestampIsRenderedThroughTheOneDateFormat() {
+        var expected = DateTimeFormatter.ofPattern(PatternFormatter.DEFAULT_DATE_PATTERN)
+                .withZone(ZoneId.systemDefault())
+                .format(Instant.ofEpochMilli(AT));
+
+        assertEquals(expected, rendered("%date"));
+    }
+
+    @Test
+    public void aLongerConversionIsPreferredToOneThatStartsTheSameWay() {
+        // "%message" must not be read as "%m" followed by the literal "essage".
+        assertEquals("Careful", rendered("%message"));
+        assertEquals("Careful", rendered("%msg"));
+    }
+
+    @Test
+    public void aLayoutCanSpendEverythingTheEventCarriesInOnePattern() {
+        var clock = DateTimeFormatter.ofPattern(PatternFormatter.DEFAULT_DATE_PATTERN)
+                .withZone(ZoneId.systemDefault())
+                .format(Instant.ofEpochMilli(AT));
+
+        assertEquals(clock + " WARN [" + Thread.currentThread().getName() + "] " + NAME + " - Careful",
+                rendered("%date %level [%thread] %logger - %m"));
+    }
+
+    @Test
+    public void aPatternIsCompiledOnceAndRendersTheSameLineEveryTime() {
+        var formatter = PatternFormatter.create("%level: %m");
+
+        assertEquals("WARN: Careful", formatter.format(theEvent()));
+        assertEquals("the compiled pattern is not consumed by rendering",
+                "WARN: Careful", formatter.format(theEvent()));
+    }
+
+    @Test
+    public void aPatternCanPutALineSeparatorInsideOneEvent() {
+        assertEquals("WARN" + NL + "Careful", rendered("%level%n%m"));
+    }
+
+    @Test
+    public void aPatternMadeOnlyOfLiteralTextRendersThatText() {
+        assertEquals("nothing to see here", rendered("nothing to see here"));
+    }
+
+    @Test
+    public void theFormatterKeepsThePatternItWasBuiltWith() {
+        assertEquals("[%level] %m", PatternFormatter.create("[%level] %m").pattern());
+    }
+
     @Test
     public void theDefaultFormatCarriesAMessageAllTheWayToTheDestination() {
         logger(PatternFormatter.create(PatternFormatter.DEFAULT_PATTERN)).warn(() -> "Careful");
@@ -1236,14 +1318,31 @@ public class LoggingTest {
     }
 
     @Test
-    public void aFormatReachingPastTheMessageFailsThroughTheLogger() {
-        // The formatter is handed the message and nothing else, so a format
-        // expecting a second argument has nothing to fill it with and comes out
-        // through the recovery path rather than reaching the caller.
-        logger(PatternFormatter.create("%s %2$s")).info(() -> "needs a second argument");
+    public void aPercentThatNamesNoConversionIsJustAPercent() {
+        // The pattern that used to send every single line down the recovery path.
+        // There is no escape to remember: a % the table does not name is literal.
+        logger(PatternFormatter.create("50% done: %s")).info(() -> "reindexing");
 
-        assertTrue("expected the failure to be reported, got: " + stdoutText(),
-                stdoutText().contains("Failed to format log message:"));
+        assertEquals("50% done: reindexing" + NL, stdoutText());
+    }
+
+    @Test
+    public void aPatternEndingInAPercentKeepsIt() {
+        assertEquals("100%", rendered("100%"));
+    }
+
+    @Test
+    public void aConversionThatDoesNotExistIsLeftAsWritten() {
+        assertEquals("Careful %nonsense", rendered("%s %nonsense"));
+    }
+
+    @Test
+    public void aPercentInTheMessageIsNeverReadAsAConversion() {
+        // The message is appended into the line, not substituted into the
+        // pattern, so nothing rescans it.
+        assertEquals("100%s of users",
+                PatternFormatter.create("%m")
+                        .format(LogEvent.create("100%s of users", LogLevel.WARN, AT, NAME)));
     }
 
     @Test
@@ -1266,8 +1365,9 @@ public class LoggingTest {
 
     @Test
     public void theShippedFormatterLeavesTheTimestampAndThreadNameToOtherLayouts() {
-        // PatternFormatter spends only the message. The event still carries the rest,
-        // so a LogFormatter that wants them can reach for them.
+        // A conversion costs nothing unless the pattern names it. "%s" names only
+        // the message, so a pattern that wants a word gets a word -- the rest of
+        // the event stays on the event.
         logger(PatternFormatter.create("%s")).info(() -> "terse");
 
         assertEquals("terse" + NL, stdoutText());

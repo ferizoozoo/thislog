@@ -9,9 +9,6 @@ import io.github.ferizoozoo.thislog.PatternFormatter;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.time.Instant;
-import java.time.ZoneId;
-import java.time.format.DateTimeFormatter;
 
 /**
  * Prints one of everything so the rendering can be eyeballed.
@@ -21,13 +18,12 @@ import java.time.format.DateTimeFormatter;
  */
 public final class Demo {
 
-    private static final DateTimeFormatter CLOCK =
-            DateTimeFormatter.ofPattern("HH:mm:ss.SSS").withZone(ZoneId.systemDefault());
-
     public static void main(String[] args) throws Exception {
         plainIsTheDefault();
         colourIsOptedInto();
         aLayoutCanUseEverythingTheEventCarries();
+        aLambdaIsStillThereForWhatAPatternCannotSay();
+        aPercentThatNamesNothingIsJustAPercent();
         anExceptionRidesUnderItsLine();
         aFileGetsCleanText();
         oneNameIsOneLogger();
@@ -79,13 +75,8 @@ public final class Demo {
     }
 
     private static void aLayoutCanUseEverythingTheEventCarries() {
-        heading("3. A custom LogFormatter reaches for everything the event carries");
-        LogFormatter detailed = event -> String.format("%s %-5s [%s] %s - %s",
-                CLOCK.format(Instant.ofEpochMilli(event.getTimestamp())),
-                event.getLevel(),
-                event.getThreadName(),
-                event.getLoggerName(),
-                event.getMessage());
+        heading("3. A pattern reaches everything the event carries");
+        var detailed = PatternFormatter.create("%date %level [%thread] %logger - %m");
 
         var coloured = LogFormatter.colored(detailed);
         var log = configured(Demo.class, using(coloured));
@@ -93,8 +84,26 @@ public final class Demo {
         log.warn(() -> "stock running low");
     }
 
+    private static void aLambdaIsStillThereForWhatAPatternCannotSay() {
+        heading("4. A LogFormatter is still a function, for layouts no pattern covers");
+        // Nothing in the pattern language renders a throwable inline, so this is
+        // the shape to reach for when a layout needs something of its own.
+        LogFormatter withCause = event -> event.getMessage()
+                + (event.getThrown() == null ? "" : " (" + event.getThrown().getMessage() + ")");
+
+        var log = configured("com.acme.orders.Reconciler", using(withCause));
+        log.warn(() -> "retrying", new IllegalStateException("upstream timed out"));
+    }
+
+    private static void aPercentThatNamesNothingIsJustAPercent() {
+        heading("5. A % the table does not name is literal, and never an error");
+        var log = configured("com.acme.index.Reindex",
+                using(PatternFormatter.create("50% done (%nonsense): %m")));
+        log.info(() -> "reindexing");
+    }
+
     private static void anExceptionRidesUnderItsLine() {
-        heading("4. A throwable and its causes ride under the line");
+        heading("6. A throwable and its causes ride under the line");
         var coloured = LogFormatter.colored(PatternFormatter.create("%s"));
         var log = configured("com.acme.billing.Pricing", using(coloured));
         var cause = new IllegalArgumentException("negative quantity: -3");
@@ -102,7 +111,7 @@ public final class Demo {
     }
 
     private static void aFileGetsCleanText() throws Exception {
-        heading("5. A file destination gets no escape sequences");
+        heading("7. A file destination gets no escape sequences");
 
         Path sink = Files.createTempFile("thislog-demo", ".log");
         var plain = PatternFormatter.create(PatternFormatter.DEFAULT_PATTERN);
@@ -121,7 +130,7 @@ public final class Demo {
     }
 
     private static void oneNameIsOneLogger() {
-        heading("6. A name resolves to one logger, wherever it is asked for");
+        heading("8. A name resolves to one logger, wherever it is asked for");
 
         // A name this demo has not touched, so nothing is configured yet.
         var early = LoggingFactory.get("com.acme.orders.OrderRouter",

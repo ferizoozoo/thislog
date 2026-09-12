@@ -11,7 +11,7 @@ public final class Utilities {
     private Utilities() {
     }
 
-    public static PrintStream LogDestinationToPrintStream(LogDestination destination) {
+    public static PrintStream logDestinationToPrintStream(LogDestination destination) {
         return switch (destination) {
             case LogDestination.Stdout ignored ->
                 System.out;

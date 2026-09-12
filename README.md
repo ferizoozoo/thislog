@@ -7,11 +7,11 @@ that decides what survives, a **formatter** that turns an event into a line, and
 a **destination** that line is written to. Nothing else is required, and there is
 nothing to configure before the first call works.
 
-> **Status: early.** The core (levels, named loggers, formatters, console and
-> file destinations, exception rendering) is implemented and covered by tests.
-> The pieces a mature logging library is expected to have — parameterized
-> messages, a real pattern language, appenders, rolling files, MDC, an SLF4J
-> binding — are not there yet. See [Roadmap](#roadmap).
+> **Status: early.** The core (levels, named loggers, the pattern language,
+> console and file destinations, exception rendering) is implemented and covered
+> by tests. The pieces a mature logging library is expected to have —
+> parameterized messages, appenders, rolling files, MDC, an SLF4J binding — are
+> not there yet. See [Roadmap](#roadmap).
 
 ## Requirements
 
@@ -82,21 +82,45 @@ A `LogFormatter` is a function from a `LogEvent` to a line. The event carries th
 message, the level, the timestamp, the thread name, the logger name, and the
 throwable if there was one.
 
+`PatternFormatter` is the one that ships. Its pattern is literal text with
+conversions in it, compiled once when the formatter is built:
+
 ```java
-LogFormatter detailed = event -> String.format("%s %-5s [%s] %s - %s",
-        CLOCK.format(Instant.ofEpochMilli(event.getTimestamp())),
-        event.getLevel(),
-        event.getThreadName(),
-        event.getLoggerName(),
-        event.getMessage());
+var detailed = PatternFormatter.create("%date %level [%thread] %logger - %m");
 
 var log = LoggingFactory.get(OrderRouter.class, detailed, LogOptions.createFromEnvironment());
+// 2026-09-12 14:22:01.337 INFO [main] com.acme.OrderRouter - order 4711 accepted
 ```
 
-`PatternFormatter` is the one that ships. Today its pattern is a
-`String.format` template whose only argument is the message —
-`PatternFormatter.create("[orders] %s")` — so anything richer needs a lambda like
-the one above. A real pattern language is the next thing planned for it.
+| Conversion                     | Renders                               |
+| ------------------------------ | ------------------------------------- |
+| `%m`, `%msg`, `%message`, `%s` | the message                           |
+| `%date`                        | the timestamp, `yyyy-MM-dd HH:mm:ss.SSS` |
+| `%level`                       | the level                             |
+| `%thread`                      | the thread name                       |
+| `%logger`                      | the logger name                       |
+| `%n`                           | the platform line separator           |
+
+**A conversion costs nothing unless the pattern names it.** The default pattern
+is `%s`, which renders the message and nothing else — so someone who wants to log
+one word gets one word, with no timestamp and no level in front of it. Everything
+above is opt-in, one conversion at a time.
+
+There is nothing else to learn: no widths, no arguments, and no escape. A `%` the
+table above does not name is literal, so `"50% done: %m"` is a valid pattern and
+`create` never throws over one. A conversion has to end at a non-letter, so
+`%nonsense` is nine literal characters rather than `%n` followed by `onsense`.
+
+The message is appended into the line rather than substituted into the pattern,
+so a `%` inside a logged message is never read as a conversion.
+
+A formatter is still just a function, so a layout the pattern language does not
+cover is a lambda:
+
+```java
+LogFormatter withCause = event -> event.getMessage()
+        + (event.getThrown() == null ? "" : " (" + event.getThrown().getMessage() + ")");
+```
 
 `LogFormatter.colored(...)` wraps any formatter and tints the line by level using
 ANSI escapes. It is opt-in, because it is only right on a terminal.
@@ -127,6 +151,9 @@ A logger taken before anything is configured seeds itself from:
 `file` writes to `log.txt` in the working directory. Anything richer than this
 belongs in code for now.
 
+A `LOG_FORMATTER` that names no conversion is not an error — it is literal text,
+so a typo costs you a wrong-looking line rather than a crash.
+
 ## Building
 
 ```bash
@@ -145,8 +172,8 @@ Roughly in the order it makes sense to build:
 
 1. **Parameterized and lazy messages** — `log.info("user {} did {}", id, action)`
    and `log.info(() -> expensive())`, plus `isEnabled(level)`.
-2. **A real pattern language** — `%d{HH:mm:ss} %-5level [%thread] %logger - %msg`,
-   compiled once rather than parsed per event.
+2. **More of the pattern language** — column widths (`%-5level`), a date format
+   per pattern (`%date{HH:mm:ss}`), `%F`/`%L` for the call site.
 3. **Stack frames** — exceptions currently render as `toString()` per cause, with
    no frames and no suppressed exceptions.
 4. **Appenders** — one logger writing to many destinations, each with its own

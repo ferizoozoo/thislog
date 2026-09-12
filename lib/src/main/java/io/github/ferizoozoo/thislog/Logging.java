@@ -34,7 +34,7 @@ public class Logging implements Loggable {
     private void setupPrinter() {
         try {
             var dest = this.options.getDestination();
-            this.printer = Utilities.LogDestinationToPrintStream(dest);
+            this.printer = Utilities.logDestinationToPrintStream(dest);
             this.ownsPrinter = dest instanceof LogDestination.LogFile;
             this.reportedWriteFailure = false;
         } catch (RuntimeException e) {
