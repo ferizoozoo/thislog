@@ -24,6 +24,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNotSame;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertThrows;
@@ -149,7 +150,7 @@ public class LoggingTest {
     }
 
     private static LogOptions to(LogDestination destination) {
-        return LogOptions.createFromEnvironment().setDestination(destination);
+        return LogOptions.createFromEnvironment().withDestination(destination);
     }
 
     /**
@@ -157,7 +158,7 @@ public class LoggingTest {
      * update that means to keep formatting has to restate the formatter.
      */
     private static LogOptions to(LogDestination destination, LogFormatter formatter) {
-        return LogOptions.createFromEnvironment().setDestination(destination).setFormatter(formatter);
+        return LogOptions.createFromEnvironment().withDestination(destination).withFormatter(formatter);
     }
 
     /**
@@ -166,12 +167,12 @@ public class LoggingTest {
      */
     private static Loggable logger(LogFormatter formatter) {
         var log = Logging.create(nextLoggerName(), LogOptions.createFromEnvironment());
-        log.changeOptions(with(formatter).setDestination(LogDestination.STDOUT));
+        log.changeOptions(with(formatter).withDestination(LogDestination.STDOUT));
         return log;
     }
 
     private static LogOptions with(LogFormatter formatter) {
-        return LogOptions.createFromEnvironment().setFormatter(formatter);
+        return LogOptions.createFromEnvironment().withFormatter(formatter);
     }
 
     // ---------------------------------------------------------------------
@@ -614,16 +615,17 @@ public class LoggingTest {
     }
 
     @Test
-    public void theDestinationIsResolvedWhenTheOptionsAreApplied() {
+    public void anOptionsObjectCannotBeEditedOutFromUnderALogger() {
         var formatter = new RecordingFormatter();
         var options = to(LogDestination.STDERR, formatter);
         var log = logger(formatter);
         log.changeOptions(options);
 
-        options.setDestination(LogDestination.STDOUT);
+        // The update produces a copy; the logger keeps the object it was given.
+        options.withDestination(LogDestination.STDOUT);
         log.info(() -> "still on stderr");
 
-        assertEquals("the printer is opened when the options are applied, not per message",
+        assertEquals("a caller holding the options must not be able to move the logger",
                 formatter.only().rendered() + NL, stderrText());
         assertEquals("", stdoutText());
     }
@@ -697,7 +699,7 @@ public class LoggingTest {
 
         log.info(() -> "original, on stdout");
         log.changeOptions(with(replacement)
-                .setDestination(LogDestination.file(sink.getAbsolutePath())));
+                .withDestination(LogDestination.file(sink.getAbsolutePath())));
         log.info(() -> "replacement, on the file");
         log.close();
 
@@ -777,19 +779,19 @@ public class LoggingTest {
     }
 
     @Test
-    public void theFormatterIsReadFromTheOptionsObjectTheLoggerWasGiven() {
-        var replacement = new RecordingFormatter();
-        var editedIn = new RecordingFormatter();
-        var options = with(replacement);
+    public void aFormatterSwappedOnACopyNeverReachesTheLogger() {
+        var inUse = new RecordingFormatter();
+        var neverApplied = new RecordingFormatter();
+        var options = with(inUse);
         var log = logger(new RecordingFormatter());
         log.changeOptions(options);
 
-        options.setFormatter(editedIn);
-        log.info(() -> "through whichever formatter the options now name");
+        options.withFormatter(neverApplied);
+        log.info(() -> "through the formatter the logger was given");
 
-        assertEquals("the logger keeps the options object, so a later edit reaches it",
-                "through whichever formatter the options now name", editedIn.only().message());
-        assertEquals(List.of(), replacement.calls);
+        assertEquals("the logger formats through the options it holds, not a later copy",
+                "through the formatter the logger was given", inUse.only().message());
+        assertEquals(List.of(), neverApplied.calls);
     }
 
     @Test
@@ -1132,11 +1134,29 @@ public class LoggingTest {
     }
 
     @Test
-    public void setDestinationIsFluentAndRemembersWhatItWasGiven() {
+    public void anUpdateReturnsACopyAndLeavesTheOriginalAlone() {
         var options = LogOptions.createFromEnvironment();
 
-        assertSame(options, options.setDestination(LogDestination.STDERR));
-        assertEquals(LogDestination.STDERR, options.getDestination());
+        var moved = options.withDestination(LogDestination.STDERR);
+
+        assertNotSame("an update must not hand back the object it was called on",
+                options, moved);
+        assertEquals(LogDestination.STDERR, moved.getDestination());
+        assertEquals("the original is untouched",
+                LogDestination.STDOUT, options.getDestination());
+    }
+
+    @Test
+    public void anUpdateCarriesOverTheFieldItDoesNotName() {
+        var formatter = new RecordingFormatter();
+        var options = LogOptions.createFromEnvironment().withFormatter(formatter);
+
+        var moved = options.withDestination(LogDestination.STDERR);
+
+        assertSame("naming a destination must not cost the formatter",
+                formatter, moved.getFormatter());
+        assertSame("and naming a formatter must not cost the destination",
+                LogDestination.STDERR, moved.withFormatter(formatter).getDestination());
     }
 
     @Test
@@ -1302,7 +1322,7 @@ public class LoggingTest {
         File sink = tempFolder.newFile();
         var plain = PatternFormatter.create(PatternFormatter.DEFAULT_PATTERN);
         var log = Logging.create(nextLoggerName(), LogOptions.createFromEnvironment());
-        log.changeOptions(to(LogDestination.file(sink.getAbsolutePath())).setFormatter(plain));
+        log.changeOptions(to(LogDestination.file(sink.getAbsolutePath())).withFormatter(plain));
         log.info(() -> "user signed in");
         log.close();
 
@@ -1433,7 +1453,7 @@ public class LoggingTest {
         File sink = tempFolder.newFile();
         var messageOnly = PatternFormatter.create("%s");
         var log = Logging.create(nextLoggerName(), LogOptions.createFromEnvironment());
-        log.changeOptions(to(LogDestination.file(sink.getAbsolutePath())).setFormatter(messageOnly));
+        log.changeOptions(to(LogDestination.file(sink.getAbsolutePath())).withFormatter(messageOnly));
 
         int threadCount = 4;
         int perThread = 50;

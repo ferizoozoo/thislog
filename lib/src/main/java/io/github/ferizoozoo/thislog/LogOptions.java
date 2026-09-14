@@ -4,36 +4,33 @@ public class LogOptions {
     private LogDestination destination;
     private LogFormatter formatter;
 
-    private LogOptions() {
+    private LogOptions(LogDestination destination, LogFormatter formatter) {
+        this.destination = destination;
+        this.formatter = formatter;
     }
 
     public static LogOptions createFromEnvironment() {
-        var options = new LogOptions();
-        options.destination = LogDestination.create(System.getenv().getOrDefault("LOG_DESTINATION", "stdout"));
-        options.formatter = PatternFormatter
-                .create(System.getenv().getOrDefault("LOG_FORMATTER", PatternFormatter.DEFAULT_PATTERN));
+        var options = new LogOptions(
+            LogDestination.create(System.getenv().getOrDefault("LOG_DESTINATION", "stdout")),
+            PatternFormatter.create(System.getenv().getOrDefault("LOG_FORMATTER", PatternFormatter.DEFAULT_PATTERN))
+        );
         return options;
     }
 
-    public static LogOptions createFromParameter(String destination, String formatter) {
-        var options = new LogOptions();
-        options.destination = LogDestination.create(destination);
-        options.formatter = PatternFormatter.create(formatter);
-        return options;
+    public static LogOptions createFromParameter(LogDestination destination, LogFormatter formatter) {
+        return new LogOptions(destination, formatter);
     }
 
-    public LogOptions setDestination(LogDestination destination) {
-        this.destination = destination;
-        return this;
+    public LogOptions withDestination(LogDestination destination) {
+        return new LogOptions(destination, this.formatter);
     }
 
     public LogDestination getDestination() {
         return this.destination;
     }
 
-    public LogOptions setFormatter(LogFormatter formatter) {
-        this.formatter = formatter;
-        return this;
+    public LogOptions withFormatter(LogFormatter formatter) {
+        return new LogOptions(this.destination, formatter);
     }
 
     public LogFormatter getFormatter() {

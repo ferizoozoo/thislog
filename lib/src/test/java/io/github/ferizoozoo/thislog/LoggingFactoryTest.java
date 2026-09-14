@@ -227,8 +227,8 @@ public class LoggingFactoryTest {
     private static Loggable registered(String name, LogFormatter formatter) {
         var log = LoggingFactory.get(name, plain());
         log.changeOptions(LogOptions.createFromEnvironment()
-                .setFormatter(formatter)
-                .setDestination(LogDestination.STDOUT));
+                .withFormatter(formatter)
+                .withDestination(LogDestination.STDOUT));
         return log;
     }
 

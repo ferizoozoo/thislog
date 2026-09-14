@@ -29,25 +29,21 @@ public final class Demo {
         oneNameIsOneLogger();
     }
 
-    /**
-     * A formatter takes effect through the options. The destination has to be
-     * named too: changeOptions reads it unconditionally, so options without one
-     * fail and report a fallback that never happened.
-     */
+    /** Environment defaults with this formatter on the console. */
     private static LogOptions using(LogFormatter formatter) {
         return LogOptions.createFromEnvironment()
-                .setFormatter(formatter)
-                .setDestination(LogDestination.STDOUT);
+                .withFormatter(formatter)
+                .withDestination(LogDestination.STDOUT);
     }
 
     /**
-     * The factory only builds a logger the first time a name is asked for, so
-     * the options are applied again in case it already existed.
+     * The constructor applies the options it is handed, so asking the factory
+     * for a name it has not seen is all the configuration a logger needs.
+     * Applying them a second time would open a second destination and orphan
+     * the first, since changing options does not release what it replaces.
      */
     private static Loggable configured(String name, LogOptions options) {
-        var log = LoggingFactory.get(name, options);
-        log.changeOptions(options);
-        return log;
+        return LoggingFactory.get(name, options);
     }
 
     private static Loggable configured(Class<?> type, LogOptions options) {
@@ -116,7 +112,7 @@ public final class Demo {
         Path sink = Files.createTempFile("thislog-demo", ".log");
         var plain = PatternFormatter.create(PatternFormatter.DEFAULT_PATTERN);
         var log = configured("com.acme.audit.AuditTrail",
-                using(plain).setDestination(LogDestination.file(sink.toString())));
+                using(plain).withDestination(LogDestination.file(sink.toString())));
         log.info(() -> "user signed in");
         log.error(() -> "checkout failed");
 
@@ -136,9 +132,12 @@ public final class Demo {
         var early = LoggingFactory.get("com.acme.orders.OrderRouter",
                 LogOptions.createFromEnvironment());
 
-        // Somewhere else entirely, the same name is configured.
+        // Somewhere else entirely, the same name is reconfigured. The factory
+        // only applies options when it builds a logger, so reaching one that
+        // already exists means changing the options on the instance.
         var coloured = LogFormatter.colored(PatternFormatter.create("[orders] %s"));
-        configured("com.acme.orders.OrderRouter", using(coloured));
+        LoggingFactory.get("com.acme.orders.OrderRouter", LogOptions.createFromEnvironment())
+                .changeOptions(using(coloured));
 
         // The handle taken before that already has the new configuration.
         early.info(() -> "configured from somewhere else");

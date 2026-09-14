@@ -67,8 +67,8 @@ public class LevelFilteringTest {
         var recorder = new Recorder();
         var log = Logging.create(nextLoggerName(), LogOptions.createFromEnvironment());
         log.changeOptions(LogOptions.createFromEnvironment()
-                .setFormatter(recorder)
-                .setDestination(LogDestination.file(sink.getAbsolutePath())));
+                .withFormatter(recorder)
+                .withDestination(LogDestination.file(sink.getAbsolutePath())));
 
         action.accept(log);
         log.close();
@@ -385,12 +385,12 @@ public class LevelFilteringTest {
         var loudRecorder = new Recorder();
         var quiet = Logging.create(nextLoggerName(), LogOptions.createFromEnvironment());
         quiet.changeOptions(LogOptions.createFromEnvironment()
-                .setFormatter(quietRecorder)
-                .setDestination(LogDestination.file(sink.getAbsolutePath())));
+                .withFormatter(quietRecorder)
+                .withDestination(LogDestination.file(sink.getAbsolutePath())));
         var loud = Logging.create(nextLoggerName(), LogOptions.createFromEnvironment());
         loud.changeOptions(LogOptions.createFromEnvironment()
-                .setFormatter(loudRecorder)
-                .setDestination(LogDestination.file(sink.getAbsolutePath())));
+                .withFormatter(loudRecorder)
+                .withDestination(LogDestination.file(sink.getAbsolutePath())));
 
         quiet.setCurrentLogLevel(LogLevel.ERROR);
         quiet.info(() -> "dropped");
@@ -475,8 +475,8 @@ public class LevelFilteringTest {
         System.setOut(stream);
         var log = Logging.create(nextLoggerName(), LogOptions.createFromEnvironment());
         log.changeOptions(LogOptions.createFromEnvironment()
-                .setFormatter(recorder)
-                .setDestination(LogDestination.STDOUT));
+                .withFormatter(recorder)
+                .withDestination(LogDestination.STDOUT));
         return log;
     }
 

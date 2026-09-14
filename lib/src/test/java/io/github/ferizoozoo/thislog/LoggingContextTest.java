@@ -101,8 +101,8 @@ public class LoggingContextTest {
     private static Loggable logger(LogFormatter formatter) {
         var log = Logging.create(nextLoggerName(), LogOptions.createFromEnvironment());
         log.changeOptions(LogOptions.createFromEnvironment()
-                .setFormatter(formatter)
-                .setDestination(LogDestination.STDOUT));
+                .withFormatter(formatter)
+                .withDestination(LogDestination.STDOUT));
         return log;
     }
 
@@ -217,7 +217,7 @@ public class LoggingContextTest {
         var log = logger(recorder);
 
         log.info(() -> "before");
-        log.changeOptions(LogOptions.createFromEnvironment().setFormatter(recorder));
+        log.changeOptions(LogOptions.createFromEnvironment().withFormatter(recorder));
         log.info(() -> "after");
 
         assertEquals(List.of(thisThread(), thisThread()), recorder.threadNames());

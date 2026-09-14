@@ -258,8 +258,8 @@ public class LogEventTest {
     private static Loggable logger(LogFormatter formatter) {
         var log = Logging.create(nextLoggerName(), LogOptions.createFromEnvironment());
         log.changeOptions(LogOptions.createFromEnvironment()
-                .setFormatter(formatter)
-                .setDestination(LogDestination.STDOUT));
+                .withFormatter(formatter)
+                .withDestination(LogDestination.STDOUT));
         return log;
     }
 

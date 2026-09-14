@@ -73,8 +73,8 @@ public class LoggingStartupTest {
 
     private static LogOptions plainlyTo(LogDestination destination) {
         return LogOptions.createFromEnvironment()
-                .setDestination(destination)
-                .setFormatter(PatternFormatter.create(PatternFormatter.DEFAULT_PATTERN));
+                .withDestination(destination)
+                .withFormatter(PatternFormatter.create(PatternFormatter.DEFAULT_PATTERN));
     }
 
     // ---------------------------------------------------------------------
