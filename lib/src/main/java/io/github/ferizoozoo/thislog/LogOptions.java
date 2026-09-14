@@ -1,8 +1,8 @@
 package io.github.ferizoozoo.thislog;
 
 public class LogOptions {
-    private LogDestination destination;
-    private LogFormatter formatter;
+    private final LogDestination destination;
+    private final LogFormatter formatter;
 
     private LogOptions(LogDestination destination, LogFormatter formatter) {
         this.destination = destination;
