@@ -10,6 +10,8 @@ public interface Loggable extends AutoCloseable {
 
     void changeOptions(LogOptions options);
 
+    LogOptions getOptions();
+
     LogLevel getCurrentLogLevel();
 
     void setCurrentLogLevel(LogLevel level);

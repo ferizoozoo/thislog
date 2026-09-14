@@ -1147,6 +1147,22 @@ public class LoggingTest {
     }
 
     @Test
+    public void changingOnlyTheDestinationKeepsTheFormatterInUse() {
+        var formatter = new RecordingFormatter();
+        var log = logger(formatter);
+
+        // The logger's own options are the base, so the formatter it is
+        // already using comes along rather than reverting to the default.
+        log.changeOptions(log.getOptions().withDestination(LogDestination.STDERR));
+        log.info(() -> "moved, and still formatted the same way");
+
+        assertSame("a partial update must not reach past the field it names",
+                formatter, log.getOptions().getFormatter());
+        assertEquals(formatter.only().rendered() + NL, stderrText());
+        assertEquals("", stdoutText());
+    }
+
+    @Test
     public void anUpdateCarriesOverTheFieldItDoesNotName() {
         var formatter = new RecordingFormatter();
         var options = LogOptions.createFromEnvironment().withFormatter(formatter);

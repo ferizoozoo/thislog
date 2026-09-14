@@ -66,6 +66,11 @@ public class Logging implements Loggable {
         return this.name;
     }
 
+    @Override 
+    public LogOptions getOptions() {
+        return this.options;
+    }
+
     @Override
     public LogLevel getCurrentLogLevel() {
         return this.currentLevel;
