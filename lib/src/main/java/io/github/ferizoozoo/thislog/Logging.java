@@ -32,11 +32,17 @@ public class Logging implements Loggable {
     }
 
     private void setupPrinter() {
+        var previous = this.printer;
+        var previouslyOwned = this.ownsPrinter;
         try {
             var dest = this.options.getDestination();
             this.printer = Utilities.logDestinationToPrintStream(dest);
             this.ownsPrinter = dest instanceof LogDestination.LogFile;
             this.reportedWriteFailure = false;
+            if (previouslyOwned) {
+                previous.flush();
+                previous.close();
+            }
         } catch (RuntimeException e) {
             System.err.println("thislog: cannot apply the logging configuration in the environment ("
                     + e + "); falling back to stdout");
@@ -66,7 +72,7 @@ public class Logging implements Loggable {
         return this.name;
     }
 
-    @Override 
+    @Override
     public LogOptions getOptions() {
         return this.options;
     }

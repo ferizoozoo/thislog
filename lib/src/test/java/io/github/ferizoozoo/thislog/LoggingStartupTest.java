@@ -266,6 +266,87 @@ public class LoggingStartupTest {
         assertEquals("the default configuration is not a failure", "", stderrText());
     }
 
+    // ---------------------------------------------------------------------
+    // Replacing the stream a logger writes to.
+    //
+    // Reconfiguration has to release the stream it leaves behind, or a file
+    // handle leaks with unwritten lines still in its buffer. The care is in
+    // which stream that is: a file belongs to the logger, but System.out
+    // belongs to the JVM, and closing one takes the whole process's output
+    // with it. Both directions are pinned down here because both have been
+    // wrong.
+    // ---------------------------------------------------------------------
+
+    @Test
+    public void aFileHandedToTheConstructorIsTheFileThatGetsWrittenTo() throws Exception {
+        // Not via changeOptions: the constructor is its own path into
+        // setupPrinter, and it runs with no previous stream to release.
+        var sink = tempFolder.newFile();
+        var log = Logging.create("com.acme.Boot", plainlyTo(LogDestination.file(sink.getAbsolutePath())));
+
+        log.info(() -> "this belongs in the file");
+        log.close();
+
+        assertEquals("the configured file is where the line goes",
+                java.util.List.of("this belongs in the file"),
+                Files.readAllLines(sink.toPath()));
+        assertEquals("opening the configured destination is not a failure", "", stderrText());
+        assertEquals("and nothing should have leaked onto the console", "", stdoutText());
+    }
+
+    @Test
+    public void leavingAFileFlushesAndClosesIt() throws Exception {
+        var first = tempFolder.newFile();
+        var second = tempFolder.newFile();
+        var log = Logging.create("com.acme.Boot", plainlyTo(LogDestination.file(first.getAbsolutePath())));
+
+        // INFO sits below the flush threshold, so this line is still in the
+        // buffer when the destination is replaced. It reaches the file only if
+        // the stream being left behind is flushed and closed.
+        log.info(() -> "written before the move");
+        log.changeOptions(plainlyTo(LogDestination.file(second.getAbsolutePath())));
+
+        assertEquals("the file a logger leaves should not be holding unwritten lines",
+                java.util.List.of("written before the move"),
+                Files.readAllLines(first.toPath()));
+    }
+
+    @Test
+    public void leavingTheConsoleLeavesItUsable() {
+        var log = configured("com.acme.Boot", plainlyTo(LogDestination.STDOUT));
+        log.info(() -> "on stdout");
+
+        log.changeOptions(plainlyTo(LogDestination.STDERR));
+
+        // System.out is not the logger's to close. If it were closed here, every
+        // later write in the process would fail silently, not just this one.
+        System.out.print("still open");
+        assertFalse("closing System.out would take the whole process's output down",
+                System.out.checkError());
+        assertTrue("and writes after the move should still land, got: " + stdoutText(),
+                stdoutText().contains("still open"));
+    }
+
+    @Test
+    public void aReconfigureThatCannotBeAppliedLeavesTheLoggerOnTheDestinationItHad() throws Exception {
+        var sink = tempFolder.newFile();
+        var directory = tempFolder.newFolder();
+        var log = Logging.create("com.acme.Boot", plainlyTo(LogDestination.file(sink.getAbsolutePath())));
+
+        // A directory cannot be opened as a file, so this reconfigure fails
+        // after the logger is already running. The replacement is opened before
+        // the current stream is released, so a failure costs nothing.
+        log.changeOptions(plainlyTo(LogDestination.file(directory.getAbsolutePath())));
+        log.info(() -> "still going to the original file");
+        log.close();
+
+        assertEquals("a destination that would not open should not cost the one that did",
+                java.util.List.of("still going to the original file"),
+                Files.readAllLines(sink.toPath()));
+        assertTrue("and the failure should still be announced, got: " + stderrText(),
+                stderrText().contains("cannot apply the logging configuration"));
+    }
+
     @Test
     public void aNameIsStillRequiredBeforeAnythingIsOpened() {
         var thrown = false;
