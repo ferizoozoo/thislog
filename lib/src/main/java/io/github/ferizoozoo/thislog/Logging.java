@@ -40,9 +40,11 @@ public class Logging implements Loggable {
             this.ownsPrinter = dest instanceof LogDestination.LogFile;
             this.reportedWriteFailure = false;
             if (previouslyOwned) {
-                previous.flush();
                 previous.close();
             }
+            // A buffered destination is the only reason to run a flush timer,
+            // and changeOptions reaches one without going through the factory.
+            Flusher.destinationOpened(dest);
         } catch (RuntimeException e) {
             System.err.println("thislog: cannot apply the logging configuration in the environment ("
                     + e + "); falling back to stdout");
@@ -113,6 +115,11 @@ public class Logging implements Loggable {
     public synchronized void close() {
         this.printer.flush();
         this.resetPrinter();
+    }
+
+    @Override
+    public synchronized void flush() {
+        this.printer.flush();
     }
 
     private synchronized void write(LogEvent logEvent) {

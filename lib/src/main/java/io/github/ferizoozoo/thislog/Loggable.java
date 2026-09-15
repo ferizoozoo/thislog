@@ -8,6 +8,8 @@ public interface Loggable extends AutoCloseable {
     @Override
     void close();
 
+    void flush();
+
     void changeOptions(LogOptions options);
 
     LogOptions getOptions();

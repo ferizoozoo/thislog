@@ -348,6 +348,46 @@ public class LoggingStartupTest {
     }
 
     @Test
+    public void aQuietLoggerStopsHoldingItsLines() throws Exception {
+        var sink = tempFolder.newFile();
+        Flusher.setIntervalForTesting(50);
+        try {
+            var log = LoggingFactory.get("com.acme.Quiet",
+                    plainlyTo(LogDestination.file(sink.getAbsolutePath())));
+
+            // INFO sits below the flush threshold, and nothing here closes the
+            // logger or reconfigures it. Only the timer can move this line.
+            log.info(() -> "written, then left alone");
+
+            var deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(10);
+            while (Files.size(sink.toPath()) == 0 && System.nanoTime() < deadline) {
+                Thread.sleep(10);
+            }
+
+            assertEquals("a quiet INFO line should reach the file without a close()",
+                    java.util.List.of("written, then left alone"),
+                    Files.readAllLines(sink.toPath()));
+        } finally {
+            Flusher.resetIntervalForTesting();
+        }
+    }
+
+    @Test
+    public void aConsoleOnlyLoggerStartsNoThread() {
+        Flusher.setIntervalForTesting(50);
+        try {
+            LoggingFactory.get("com.acme.ConsoleOnly", plainlyTo(LogDestination.STDOUT))
+                    .info(() -> "nothing here buffers");
+
+            assertFalse("a process logging only to the console should not start a flush thread",
+                    Thread.getAllStackTraces().keySet().stream()
+                            .anyMatch(t -> "thislog-flush".equals(t.getName())));
+        } finally {
+            Flusher.resetIntervalForTesting();
+        }
+    }
+
+    @Test
     public void aNameIsStillRequiredBeforeAnythingIsOpened() {
         var thrown = false;
         try {

@@ -34,10 +34,25 @@ public final class LoggingFactory {
     }
 
     public static void clear() {
+        Flusher.stop();
         for (Loggable logger : LOGGERS.values()) {
-            logger.close();
+            try {
+                logger.close();
+            } catch (RuntimeException e) {
+                System.err.println("thislog: could not close '" + logger.getName() + "' (" + e + ")");
+            }
         }
         LOGGERS.clear();
+    }
+
+    static void flushAll() {
+        for (Loggable logger : LOGGERS.values()) {
+            try {
+                logger.flush();
+            } catch (RuntimeException e) {
+                System.err.println("thislog: could not flush '" + logger.getName() + "' (" + e + ")");
+            }
+        }
     }
 
     private LoggingFactory() {
