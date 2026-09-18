@@ -18,7 +18,7 @@ public class Logging implements Loggable {
     private volatile LogOptions options;
 
     private PrintStream printer;
-    private boolean ownsPrinter;
+    private String ownedPath;
     private boolean reportedWriteFailure;
 
     private Logging(String name, LogOptions options) {
@@ -32,15 +32,14 @@ public class Logging implements Loggable {
     }
 
     private void setupPrinter() {
-        var previous = this.printer;
-        var previouslyOwned = this.ownsPrinter;
+        var previousPath = this.ownedPath;
         try {
             var dest = this.options.getDestination();
             this.printer = Utilities.logDestinationToPrintStream(dest);
-            this.ownsPrinter = dest instanceof LogDestination.LogFile;
+            this.ownedPath = dest instanceof LogDestination.LogFile file ? file.path() : null;
             this.reportedWriteFailure = false;
-            if (previouslyOwned) {
-                previous.close();
+            if (previousPath != null) {
+                FileStreams.release(previousPath);
             }
             // A buffered destination is the only reason to run a flush timer,
             // and changeOptions reaches one without going through the factory.
@@ -55,11 +54,11 @@ public class Logging implements Loggable {
     }
 
     private void resetPrinter() {
-        if (this.ownsPrinter) {
-            this.printer.close();
+        if (this.ownedPath != null) {
+            FileStreams.release(this.ownedPath);
         }
         this.printer = System.out;
-        this.ownsPrinter = false;
+        this.ownedPath = null;
         this.reportedWriteFailure = false;
     }
 

@@ -136,8 +136,9 @@ LogOptions.createFromEnvironment().setDestination(LogDestination.file("app.log")
 Files are opened in append mode and buffered; `ERROR` and above force a flush.
 Call `close()` on a logger to flush and release a file it owns.
 
-> Two loggers pointed at the same path each open their own buffered stream and
-> will interleave. Until a shared writer lands, give each file one logger.
+> Two loggers pointed at the same path share one stream, so every line arrives
+> whole. They still interleave in order: a line from one, then a line from the
+> other.
 
 ## Configuration from the environment
 

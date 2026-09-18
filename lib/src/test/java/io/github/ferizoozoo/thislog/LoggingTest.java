@@ -1508,6 +1508,141 @@ public class LoggingTest {
         assertEquals("every line must arrive whole and exactly once", expected, written);
     }
 
+    // ---------------------------------------------------------------------
+    // One stream per file.
+    //
+    // The concurrency cases below exercise the result; these pin the mechanism,
+    // which is the part that can regress silently. A second stream over the
+    // same file is a second buffer, and two buffers flush on their own
+    // boundaries rather than on line boundaries.
+    // ---------------------------------------------------------------------
+
+    @Test
+    public void onePathHandsOutOneStreamHoweverManyAskForIt() throws Exception {
+        File sink = tempFolder.newFile();
+        var path = sink.getAbsolutePath();
+
+        var first = FileStreams.acquire(path);
+        var second = FileStreams.acquire(path);
+        try {
+            assertSame("a file must have exactly one open stream", first, second);
+        } finally {
+            FileStreams.release(path);
+            FileStreams.release(path);
+        }
+    }
+
+    @Test
+    public void twoSpellingsOfOnePathAreStillOnePath() throws Exception {
+        File sink = tempFolder.newFile();
+        var direct = sink.getAbsolutePath();
+        var roundabout = sink.getParentFile().getAbsolutePath()
+                + File.separator + "." + File.separator + sink.getName();
+
+        var first = FileStreams.acquire(direct);
+        var second = FileStreams.acquire(roundabout);
+        try {
+            assertSame("the registry key has to be canonical, or the sharing buys nothing",
+                    first, second);
+        } finally {
+            FileStreams.release(direct);
+            FileStreams.release(roundabout);
+        }
+    }
+
+    @Test
+    public void theFileIsClosedOnlyWhenTheLastHolderLetsGo() throws Exception {
+        File sink = tempFolder.newFile();
+        var path = sink.getAbsolutePath();
+
+        var stream = FileStreams.acquire(path);
+        FileStreams.acquire(path);
+
+        FileStreams.release(path);
+        stream.print("still open");
+        stream.flush();
+        assertFalse("one holder releasing must not close the stream", stream.checkError());
+
+        FileStreams.release(path);
+        stream.print("after the last release");
+        stream.flush();
+        assertTrue("the last release must close it", stream.checkError());
+    }
+
+    @Test
+    public void twoLoggersOnOnePathWriteEveryLineWholeAndExactlyOnce() throws Exception {
+        File sink = tempFolder.newFile();
+        var messageOnly = PatternFormatter.create("%s");
+
+        var first = Logging.create(nextLoggerName(), LogOptions.createFromEnvironment());
+        first.changeOptions(to(LogDestination.file(sink.getAbsolutePath())).withFormatter(messageOnly));
+        var second = Logging.create(nextLoggerName(), LogOptions.createFromEnvironment());
+        second.changeOptions(to(LogDestination.file(sink.getAbsolutePath())).withFormatter(messageOnly));
+
+        int threadsEach = 2;
+        int perThread = 500;
+        var start = new CountDownLatch(1);
+        var workers = new ArrayList<Thread>();
+        var expected = new ArrayList<String>();
+
+        var loggers = List.of(first, second);
+        for (int l = 0; l < loggers.size(); l++) {
+            var log = loggers.get(l);
+            for (int t = 0; t < threadsEach; t++) {
+                String tag = "logger" + l + "-worker" + t;
+                for (int i = 0; i < perThread; i++) {
+                    expected.add(line(tag, i));
+                }
+                var worker = new Thread(() -> {
+                    await(start);
+                    for (int i = 0; i < perThread; i++) {
+                        int n = i;
+                        log.info(() -> line(tag, n));
+                    }
+                }, tag);
+                workers.add(worker);
+                worker.start();
+            }
+        }
+
+        start.countDown();
+        for (Thread worker : workers) {
+            worker.join(10_000);
+            assertFalse(worker.getName() + " did not finish", worker.isAlive());
+        }
+        first.close();
+        second.close();
+
+        List<String> written = Files.readAllLines(sink.toPath(), StandardCharsets.UTF_8);
+        Collections.sort(expected);
+        Collections.sort(written);
+        assertEquals("two loggers on one path must not tear each other's lines",
+                expected, written);
+    }
+
+    @Test
+    public void closingOneLoggerLeavesTheFileOpenForTheOther() throws Exception {
+        File sink = tempFolder.newFile();
+        var messageOnly = PatternFormatter.create("%s");
+
+        var first = Logging.create(nextLoggerName(), LogOptions.createFromEnvironment());
+        first.changeOptions(to(LogDestination.file(sink.getAbsolutePath())).withFormatter(messageOnly));
+        var second = Logging.create(nextLoggerName(), LogOptions.createFromEnvironment());
+        second.changeOptions(to(LogDestination.file(sink.getAbsolutePath())).withFormatter(messageOnly));
+
+        first.info(() -> "from the first");
+        first.close();
+
+        // The stream is still held by the second logger, so this must land in
+        // the file rather than on the fallback console.
+        second.info(() -> "from the second");
+        second.close();
+
+        assertEquals("releasing one holder must not close the file under the other",
+                List.of("from the first", "from the second"),
+                Files.readAllLines(sink.toPath(), StandardCharsets.UTF_8));
+    }
+
     /** Long enough that a torn write would be obvious in the comparison. */
     private static String line(String tag, int i) {
         return tag + "-" + i + "-" + "x".repeat(40);
