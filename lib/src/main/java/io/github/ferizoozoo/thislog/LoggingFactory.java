@@ -1,12 +1,26 @@
 package io.github.ferizoozoo.thislog;
 
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
+import java.util.WeakHashMap;
 import java.util.concurrent.ConcurrentHashMap;
 
 public final class LoggingFactory {
 
     private static final Map<String, Loggable> LOGGERS = new ConcurrentHashMap<>();
+
+    private static final Set<Loggable> LIVE =
+            Collections.newSetFromMap(new WeakHashMap<Loggable, Boolean>());
+
+    static void track(Loggable logger) {
+        synchronized (LIVE) {
+            LIVE.add(logger);
+        }
+    }
 
     public static Loggable get(Class<?> type, LogOptions options) {
         Objects.requireNonNull(type, "type");
@@ -27,6 +41,7 @@ public final class LoggingFactory {
                     "logger is named %s, cannot register it as %s".formatted(logger.getName(), name));
         }
         LOGGERS.put(name, logger);
+        track(logger);
     }
 
     public static boolean has(String name) {
@@ -46,7 +61,11 @@ public final class LoggingFactory {
     }
 
     static void flushAll() {
-        for (Loggable logger : LOGGERS.values()) {
+        List<Loggable> snapshot;
+        synchronized (LIVE) {
+            snapshot = new ArrayList<>(LIVE);
+        }
+        for (Loggable logger : snapshot) {
             try {
                 logger.flush();
             } catch (RuntimeException e) {

@@ -164,7 +164,53 @@ public class LoggingStartupTest {
 
         assertEquals("buffered" + NL, Files.readString(sink.toPath(), StandardCharsets.UTF_8));
         log.info(() -> "after closing");
-        assertEquals("a closed logger falls back to stdout", "after closing" + NL, stdoutText());
+        assertEquals("a closed logger writes nowhere at all", "", stdoutText());
+        assertEquals("and nothing more reaches the file it released",
+                "buffered" + NL, Files.readString(sink.toPath(), StandardCharsets.UTF_8));
+    }
+
+    @Test
+    public void closingTwiceIsHarmless() throws Exception {
+        var sink = tempFolder.newFile();
+        var log = configured("com.acme.Boot",
+                plainlyTo(LogDestination.file(sink.getAbsolutePath())));
+
+        log.info(() -> "buffered");
+        log.close();
+        log.close();
+
+        assertEquals("buffered" + NL, Files.readString(sink.toPath(), StandardCharsets.UTF_8));
+        assertEquals("a second close must not report anything", "", stderrText());
+    }
+
+    @Test
+    public void aClosedLoggerNeverThrowsFromALoggingCall() throws Exception {
+        var sink = tempFolder.newFile();
+        var log = configured("com.acme.Boot",
+                plainlyTo(LogDestination.file(sink.getAbsolutePath())));
+        log.close();
+
+        log.info(() -> "dropped");
+        log.error(() -> "dropped too", new IllegalStateException("and its cause"));
+
+        assertFalse("a closed logger should not even build the message",
+                log.isEnabled(LogLevel.ERROR));
+        assertEquals("", stdoutText());
+        assertEquals("", stderrText());
+    }
+
+    @Test
+    public void reconfiguringAClosedLoggerPutsItBackToWork() throws Exception {
+        var sink = tempFolder.newFile();
+        var log = configured("com.acme.Boot",
+                plainlyTo(LogDestination.file(sink.getAbsolutePath())));
+        log.close();
+
+        log.changeOptions(plainlyTo(LogDestination.STDOUT));
+        log.info(() -> "back in service");
+
+        assertEquals("changeOptions is how a closed logger is revived",
+                "back in service" + NL, stdoutText());
     }
 
     // ---------------------------------------------------------------------

@@ -410,7 +410,7 @@ public class LoggingTest {
         log.changeOptions(to(LogDestination.file(sink.getAbsolutePath()), formatter));
 
         log.info(() -> "to the file");
-        log.close();
+        log.changeOptions(to(LogDestination.STDOUT, formatter));
         log.info(() -> "to stdout");
 
         assertEquals(formatter.calls.get(0).rendered() + NL,
@@ -638,7 +638,7 @@ public class LoggingTest {
         var log = LoggingFactory.get(nextLoggerName(), LogOptions.createFromEnvironment());
         log.changeOptions(to(LogDestination.file(sink.getAbsolutePath()), formatter));
         log.info(() -> "into the file");
-        log.close();
+        log.changeOptions(to(LogDestination.STDOUT, formatter));
         log.info(() -> "out to stdout");
 
         assertEquals(formatter.calls.get(0).rendered() + NL,

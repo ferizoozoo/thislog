@@ -7,11 +7,12 @@ that decides what survives, a **formatter** that turns an event into a line, and
 a **destination** that line is written to. Nothing else is required, and there is
 nothing to configure before the first call works.
 
-> **Status: early.** The core (levels, named loggers, the pattern language,
-> console and file destinations, exception rendering) is implemented and covered
-> by tests. The pieces a mature logging library is expected to have —
-> parameterized messages, appenders, rolling files, MDC, an SLF4J binding — are
-> not there yet. See [Roadmap](#roadmap).
+> **Status: early.** The core (levels, named loggers, deferred messages, the
+> pattern language, console and file destinations, exception rendering, one
+> shared writer per file, and a flush on exit) is implemented and covered by
+> tests. The pieces a mature logging library is expected to have —
+> parameterized `{}` messages, appenders, rolling files, MDC, an SLF4J binding —
+> are not there yet. See [Roadmap](#roadmap).
 
 ## Requirements
 
@@ -48,13 +49,14 @@ On the module path, the module name is `io.github.ferizoozoo.thislog`.
 ## Quick start
 
 ```java
+import io.github.ferizoozoo.thislog.LogOptions;
 import io.github.ferizoozoo.thislog.LoggingFactory;
 
-var log = LoggingFactory.get(OrderRouter.class);
+var log = LoggingFactory.get(OrderRouter.class, LogOptions.createFromEnvironment());
 
-log.info("order 4711 accepted");
-log.warn("stock running low");
-log.error("could not price the basket", new IllegalStateException("pricing failed"));
+log.info(() -> "order 4711 accepted");
+log.warn(() -> "stock running low");
+log.error(() -> "could not price the basket", new IllegalStateException("pricing failed"));
 ```
 
 A name resolves to exactly one logger, wherever it is asked for. Taking the same
@@ -63,18 +65,30 @@ instance, so configuring it in one place reaches every holder.
 
 ## Levels
 
-`TRACE < DEBUG < INFO < WARN < ERROR < FATAL`, plus `OFF`.
+`TRACE < DEBUG < INFO < WARN < ERROR < FATAL`.
 
-Every level has a one-argument form and a form that takes a throwable. A logger
-starts at `TRACE` and writes everything; raising its level drops anything below
-the threshold before the event is even built.
+A message is a `Supplier<String>`, so nothing is built for a line that will not
+be written. Every level has that one-argument form and a form that also takes a
+throwable. A logger starts at `TRACE` and writes everything; raising its level
+drops anything below the threshold before the supplier is ever called.
 
 ```java
-log.setCurrentLevel(LogLevel.WARN);
+log.setCurrentLogLevel(LogLevel.WARN);
 
-log.info("dropped");     // never formatted, never written
-log.warn("kept");
+log.info(() -> "dropped");   // the supplier is never called
+log.warn(() -> "kept");
 ```
+
+`isEnabled` is public, for guarding a block that costs more than one string:
+
+```java
+if (log.isEnabled(LogLevel.DEBUG)) {
+    log.debug(() -> describe(everyCandidateRoute()));
+}
+```
+
+A supplier that throws is reported in the line rather than escaping, so a broken
+message never takes down the call site.
 
 ## Formatters
 
@@ -88,7 +102,8 @@ conversions in it, compiled once when the formatter is built:
 ```java
 var detailed = PatternFormatter.create("%date %level [%thread] %logger - %m");
 
-var log = LoggingFactory.get(OrderRouter.class, detailed, LogOptions.createFromEnvironment());
+var log = LoggingFactory.get(OrderRouter.class,
+        LogOptions.createFromEnvironment().withFormatter(detailed));
 // 2026-09-12 14:22:01.337 INFO [main] com.acme.OrderRouter - order 4711 accepted
 ```
 
@@ -128,13 +143,22 @@ ANSI escapes. It is opt-in, because it is only right on a terminal.
 ## Destinations
 
 ```java
-LogOptions.createFromEnvironment().setDestination(LogDestination.STDOUT)
-LogOptions.createFromEnvironment().setDestination(LogDestination.STDERR)
-LogOptions.createFromEnvironment().setDestination(LogDestination.file("app.log"))
+LogOptions.createFromEnvironment().withDestination(LogDestination.STDOUT)
+LogOptions.createFromEnvironment().withDestination(LogDestination.STDERR)
+LogOptions.createFromEnvironment().withDestination(LogDestination.file("app.log"))
 ```
 
-Files are opened in append mode and buffered; `ERROR` and above force a flush.
-Call `close()` on a logger to flush and release a file it owns.
+Files are opened in append mode and buffered. `ERROR` and above force a flush
+immediately; everything below it is flushed on a timer, and again by a shutdown
+hook when the JVM exits. Nothing has to be closed by hand for a buffered `INFO`
+line to survive a normal exit.
+
+`Runtime.halt()`, `SIGKILL` and a JVM crash run no shutdown hooks, so buffering
+always loses its tail there. That is inherent, not a gap.
+
+`close()` stops a logger for good: it flushes, releases the file, and from then
+on discards anything logged to it — a logging call never throws, before or after.
+`changeOptions(...)` puts a closed logger back to work.
 
 > Two loggers pointed at the same path share one stream, so every line arrives
 > whole. They still interleave in order: a line from one, then a line from the
@@ -144,10 +168,11 @@ Call `close()` on a logger to flush and release a file it owns.
 
 A logger taken before anything is configured seeds itself from:
 
-| Variable          | Default    | Meaning                        |
-| ----------------- | ---------- | ------------------------------ |
-| `LOG_DESTINATION` | `stdout`   | `stdout`, `stderr`, or `file`  |
-| `LOG_FORMATTER`   | `%s`       | Pattern for `PatternFormatter` |
+| Variable                | Default  | Meaning                                    |
+| ----------------------- | -------- | ------------------------------------------ |
+| `LOG_DESTINATION`       | `stdout` | `stdout`, `stderr`, or `file`              |
+| `LOG_FORMATTER`         | `%s`     | Pattern for `PatternFormatter`             |
+| `LOG_FLUSH_INTERVAL_MS` | `2000`   | Background flush interval; `0` disables it |
 
 `file` writes to `log.txt` in the working directory. Anything richer than this
 belongs in code for now.
@@ -159,7 +184,7 @@ so a typo costs you a wrong-looking line rather than a crash.
 
 ```bash
 ./gradlew build          # compile, test, javadoc, jars
-./gradlew :demo:run      # print one of every rendering
+./gradlew runDemo --console=plain   # print one of every rendering
 ./gradlew :lib:publishToMavenLocal
 ```
 
@@ -171,15 +196,15 @@ library currently does.
 
 Roughly in the order it makes sense to build:
 
-1. **Parameterized and lazy messages** — `log.info("user {} did {}", id, action)`
-   and `log.info(() -> expensive())`, plus `isEnabled(level)`.
+1. **Parameterized messages** — `log.info("user {} did {}", id, action)`, for the
+   fixed-arity call SLF4J users expect. Deferral is already covered by the
+   supplier form.
 2. **More of the pattern language** — column widths (`%-5level`), a date format
    per pattern (`%date{HH:mm:ss}`), `%F`/`%L` for the call site.
 3. **Stack frames** — exceptions currently render as `toString()` per cause, with
    no frames and no suppressed exceptions.
 4. **Appenders** — one logger writing to many destinations, each with its own
-   formatter, level, and filters; a shared writer per file path; a shutdown hook
-   so buffered lines are not lost at exit.
+   formatter, level, and filters.
 5. **Rolling files** — size and time based, with retention and compression.
 6. **Logger hierarchy** — `com.acme.checkout.Flow` inheriting from `com.acme` and
    a root logger.

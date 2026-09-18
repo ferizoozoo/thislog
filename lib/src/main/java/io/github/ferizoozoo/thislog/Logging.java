@@ -1,5 +1,6 @@
 package io.github.ferizoozoo.thislog;
 
+import java.io.OutputStream;
 import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
 import java.util.Collections;
@@ -13,6 +14,9 @@ public class Logging implements Loggable {
 
     private static final LogLevel FLUSH_THRESHOLD = LogLevel.ERROR;
 
+    private static final PrintStream DISCARD =
+            new PrintStream(OutputStream.nullOutputStream(), false);
+
     private final String name;
     private volatile LogLevel currentLevel = LogLevel.TRACE;
     private volatile LogOptions options;
@@ -20,6 +24,7 @@ public class Logging implements Loggable {
     private PrintStream printer;
     private String ownedPath;
     private boolean reportedWriteFailure;
+    private volatile boolean closed;
 
     private Logging(String name, LogOptions options) {
         this.name = Objects.requireNonNull(name, "name");
@@ -28,7 +33,9 @@ public class Logging implements Loggable {
     }
 
     public static Logging create(String name, LogOptions options) {
-        return new Logging(name, options);
+        var logger = new Logging(name, options);
+        LoggingFactory.track(logger);
+        return logger;
     }
 
     private void setupPrinter() {
@@ -47,7 +54,7 @@ public class Logging implements Loggable {
         } catch (RuntimeException e) {
             System.err.println("thislog: cannot apply the logging configuration in the environment ("
                     + e + "); falling back to stdout");
-            if (this.printer == null) {
+            if (this.printer == null || this.printer == DISCARD) {
                 this.resetPrinter();
             }
         }
@@ -65,6 +72,7 @@ public class Logging implements Loggable {
     @Override
     public synchronized void changeOptions(LogOptions options) {
         this.options = options;
+        this.closed = false;
         this.setupPrinter();
     }
 
@@ -90,7 +98,7 @@ public class Logging implements Loggable {
 
     @Override
     public boolean isEnabled(LogLevel level) {
-        return level.severity() >= this.currentLevel.severity();
+        return !this.closed && level.severity() >= this.currentLevel.severity();
     }
 
     @Override
@@ -112,8 +120,17 @@ public class Logging implements Loggable {
 
     @Override
     public synchronized void close() {
+        if (this.closed) {
+            return;
+        }
         this.printer.flush();
-        this.resetPrinter();
+        if (this.ownedPath != null) {
+            FileStreams.release(this.ownedPath);
+        }
+        this.ownedPath = null;
+        this.printer = DISCARD;
+        this.reportedWriteFailure = false;
+        this.closed = true;
     }
 
     @Override

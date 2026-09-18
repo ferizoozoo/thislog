@@ -2,12 +2,12 @@ package io.github.ferizoozoo.thislog;
 
 import java.io.PrintStream;
 
-public final class Utilities {
+final class Utilities {
 
     private Utilities() {
     }
 
-    public static PrintStream logDestinationToPrintStream(LogDestination destination) {
+    static PrintStream logDestinationToPrintStream(LogDestination destination) {
         return switch (destination) {
             case LogDestination.Stdout ignored ->
                 System.out;
