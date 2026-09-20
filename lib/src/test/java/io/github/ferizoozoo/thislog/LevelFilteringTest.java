@@ -7,6 +7,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 
@@ -14,6 +15,7 @@ import org.junit.After;
 import org.junit.Before;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 import org.junit.Rule;
 import org.junit.Test;
@@ -24,8 +26,9 @@ import org.junit.rules.TemporaryFolder;
  *
  * <p>One rule: a message is written when the severity of the method that was
  * called is at or above the logger's current level, and dropped otherwise. The
- * threshold starts at TRACE, so nothing is filtered until a caller raises it,
- * and it governs every level rather than a privileged subset of them.
+ * threshold starts at {@link LogOptions#DEFAULT_LEVEL}, so TRACE and DEBUG are
+ * filtered until a caller lowers it, and it governs every level rather than a
+ * privileged subset of them.
  *
  * <p>Dropping happens before formatting, so raising the threshold buys back
  * the cost of building the line as well as the cost of writing it.
@@ -63,12 +66,21 @@ public class LevelFilteringTest {
 
     /** Runs {@code action} against a logger writing to a temp file. */
     private Run run(Consumer<Loggable> action) throws Exception {
+        return runAt(null, action);
+    }
+
+    /**
+     * As {@link #run}, with {@code threshold} set on the options rather than on
+     * the logger. A null threshold leaves the default in place.
+     */
+    private Run runAt(LogLevel threshold, Consumer<Loggable> action) throws Exception {
         File sink = tempFolder.newFile();
         var recorder = new Recorder();
         var log = Logging.create(nextLoggerName(), LogOptions.createFromEnvironment());
-        log.changeOptions(LogOptions.createFromEnvironment()
+        var options = LogOptions.createFromEnvironment()
                 .withFormatter(recorder)
-                .withDestination(LogDestination.file(sink.getAbsolutePath())));
+                .withDestination(LogDestination.file(sink.getAbsolutePath()));
+        log.changeOptions(threshold == null ? options : options.withLevel(threshold));
 
         action.accept(log);
         log.close();
@@ -108,22 +120,28 @@ public class LevelFilteringTest {
     }
 
     // ---------------------------------------------------------------------
-    // The default threshold filters nothing.
+    // The default threshold, and where a logger gets it from.
     // ---------------------------------------------------------------------
 
     @Test
-    public void traceIsWrittenAtTheDefaultLevel() throws Exception {
-        Run run = run(log -> log.trace(() -> "Tracing"));
-
-        assertEquals("the threshold starts at TRACE, so nothing is filtered",
-            List.of("TRACE"), run.levelsWritten());
+    public void theDefaultThresholdIsInfo() {
+        assertEquals("a library that defaults to TRACE floods the first production log",
+            LogLevel.INFO, LogOptions.createFromEnvironment().getLevel());
     }
 
     @Test
-    public void debugIsWrittenAtTheDefaultLevel() throws Exception {
+    public void traceIsDroppedAtTheDefaultLevel() throws Exception {
+        Run run = run(log -> log.trace(() -> "Tracing"));
+
+        assertEquals("the threshold starts at INFO, so TRACE is below it",
+            List.of(), run.levelsWritten());
+    }
+
+    @Test
+    public void debugIsDroppedAtTheDefaultLevel() throws Exception {
         Run run = run(log -> log.debug(() -> "chatter"));
 
-        assertEquals(List.of("DEBUG"), run.levelsWritten());
+        assertEquals(List.of(), run.levelsWritten());
     }
 
     @Test
@@ -134,10 +152,18 @@ public class LevelFilteringTest {
     }
 
     @Test
-    public void everyLevelIsWrittenAtTheDefaultThreshold() throws Exception {
+    public void exactlyTheLevelsAtOrAboveInfoAreWrittenAtTheDefaultThreshold() throws Exception {
         Run run = run(LevelFilteringTest::logEveryLevel);
 
-        assertEquals(atOrAbove(LogLevel.TRACE), run.levelsWritten());
+        assertEquals(atOrAbove(LogLevel.INFO), run.levelsWritten());
+    }
+
+    @Test
+    public void aLevelOnTheOptionsSeedsTheLoggerWithoutASecondCall() throws Exception {
+        Run run = runAt(LogLevel.TRACE, LevelFilteringTest::logEveryLevel);
+
+        assertEquals("withLevel must reach the logger, not just the options",
+            atOrAbove(LogLevel.TRACE), run.levelsWritten());
     }
 
     // ---------------------------------------------------------------------
@@ -524,6 +550,70 @@ public class LevelFilteringTest {
         log.info(() -> "below the threshold set elsewhere");
 
         assertEquals(List.of(), recorder.levels);
+    }
+
+    // ---------------------------------------------------------------------
+    // Parsing a level out of configuration.
+    // ---------------------------------------------------------------------
+
+    @Test
+    public void everyLevelNameParses() {
+        for (LogLevel level : LEVELS) {
+            assertEquals(level, LogLevel.create(level.name()));
+        }
+    }
+
+    @Test
+    public void aLevelNameParsesWhateverItsCase() {
+        assertEquals(LogLevel.WARN, LogLevel.create("warn"));
+        assertEquals(LogLevel.WARN, LogLevel.create("Warn"));
+    }
+
+    @Test
+    public void surroundingWhitespaceDoesNotChangeALevelName() {
+        assertEquals(LogLevel.DEBUG, LogLevel.create("  debug\t"));
+    }
+
+    @Test
+    public void aLevelNameParsesUnderALocaleThatUppercasesIDifferently() {
+        Locale original = Locale.getDefault();
+        try {
+            Locale.setDefault(Locale.forLanguageTag("tr"));
+            assertEquals(LogLevel.INFO, LogLevel.create("info"));
+        } finally {
+            Locale.setDefault(original);
+        }
+    }
+
+    @Test
+    public void anUnknownLevelNameIsRejectedByName() {
+        var rejected = assertThrows(IllegalArgumentException.class,
+            () -> LogLevel.create("verbose"));
+
+        assertTrue("the message should name the offending value, got: " + rejected.getMessage(),
+            rejected.getMessage().contains("verbose"));
+    }
+
+    // ---------------------------------------------------------------------
+    // A level cannot go missing on the way to the logger.
+    // ---------------------------------------------------------------------
+
+    @Test
+    public void aNullLevelIsRejectedWhenTheOptionsAreBuilt() {
+        assertThrows(NullPointerException.class,
+            () -> LogOptions.createFromEnvironment().withLevel(null));
+    }
+
+    @Test
+    public void reconfiguringALoggerAppliesTheLevelOnTheNewOptions() throws Exception {
+        Run run = runAt(LogLevel.TRACE, log -> {
+            log.setCurrentLogLevel(LogLevel.ERROR);
+            log.changeOptions(log.getOptions().withLevel(LogLevel.DEBUG));
+            logEveryLevel(log);
+        });
+
+        assertEquals("the options are the source of truth, so changeOptions resets the threshold",
+            atOrAbove(LogLevel.DEBUG), run.levelsWritten());
     }
 
     private static final AtomicInteger LOGGER_SEQ = new AtomicInteger();

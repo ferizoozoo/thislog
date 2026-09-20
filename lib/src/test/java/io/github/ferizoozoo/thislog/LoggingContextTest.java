@@ -102,7 +102,8 @@ public class LoggingContextTest {
         var log = Logging.create(nextLoggerName(), LogOptions.createFromEnvironment());
         log.changeOptions(LogOptions.createFromEnvironment()
                 .withFormatter(formatter)
-                .withDestination(LogDestination.STDOUT));
+                .withDestination(LogDestination.STDOUT)
+                .withLevel(LogLevel.TRACE));
         return log;
     }
 

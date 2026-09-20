@@ -69,8 +69,19 @@ instance, so configuring it in one place reaches every holder.
 
 A message is a `Supplier<String>`, so nothing is built for a line that will not
 be written. Every level has that one-argument form and a form that also takes a
-throwable. A logger starts at `TRACE` and writes everything; raising its level
-drops anything below the threshold before the supplier is ever called.
+throwable. A logger starts at `INFO`, so `TRACE` and `DEBUG` are dropped until
+you lower it; anything below the threshold is dropped before the supplier is
+ever called.
+
+The threshold comes from the options the logger was built with, so it can be set
+before the first line is written:
+
+```java
+var log = LoggingFactory.get(OrderRouter.class,
+        LogOptions.createFromEnvironment().withLevel(LogLevel.DEBUG));
+```
+
+or moved afterwards, on a logger already in use:
 
 ```java
 log.setCurrentLogLevel(LogLevel.WARN);
@@ -78,6 +89,9 @@ log.setCurrentLogLevel(LogLevel.WARN);
 log.info(() -> "dropped");   // the supplier is never called
 log.warn(() -> "kept");
 ```
+
+`changeOptions` carries a level like any other option, so it resets a threshold
+set by `setCurrentLogLevel` — the options are the source of truth.
 
 `isEnabled` is public, for guarding a block that costs more than one string:
 
@@ -204,14 +218,20 @@ A logger taken before anything is configured seeds itself from:
 | Variable                | Default  | Meaning                                    |
 | ----------------------- | -------- | ------------------------------------------ |
 | `LOG_DESTINATION`       | `stdout` | `stdout`, `stderr`, or `file`              |
+| `LOG_LEVEL`             | `INFO`   | Threshold: `TRACE`…`FATAL`, any case       |
 | `LOG_FORMATTER`         | `%s`     | Pattern for `PatternFormatter`             |
 | `LOG_FLUSH_INTERVAL_MS` | `2000`   | Background flush interval; `0` disables it |
 
 `file` writes to `log.txt` in the working directory. Anything richer than this
 belongs in code for now.
 
-A `LOG_FORMATTER` that names no conversion is not an error — it is literal text,
-so a typo costs you a wrong-looking line rather than a crash.
+The three are not equally forgiving, which is worth knowing before you set one
+in a container that has to come up. A `LOG_FORMATTER` that names no conversion
+is not an error — it is literal text, so a typo costs you a wrong-looking line
+rather than a crash. A bad `LOG_FLUSH_INTERVAL_MS` warns and falls back. But a
+`LOG_DESTINATION` or `LOG_LEVEL` that names nothing throws out of
+`LogOptions.createFromEnvironment()`, so a misspelled level fails startup rather
+than logging at the wrong one.
 
 ## Building
 

@@ -172,7 +172,9 @@ public class LoggingTest {
     }
 
     private static LogOptions with(LogFormatter formatter) {
-        return LogOptions.createFromEnvironment().withFormatter(formatter);
+        return LogOptions.createFromEnvironment()
+                .withFormatter(formatter)
+                .withLevel(LogLevel.TRACE);
     }
 
     /** A frame that renders as {@code com.acme.Checkout.complete(Checkout.java:17)}. */

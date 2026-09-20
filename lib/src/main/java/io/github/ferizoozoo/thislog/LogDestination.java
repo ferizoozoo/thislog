@@ -1,5 +1,7 @@
 package io.github.ferizoozoo.thislog;
 
+import java.util.Locale;
+
 public sealed interface LogDestination {
 
     record Stdout() implements LogDestination {}
@@ -13,7 +15,7 @@ public sealed interface LogDestination {
     LogDestination FILE = new LogFile("log.txt");
 
     public static LogDestination create(String destination) {
-        return switch (destination.toLowerCase()) {
+        return switch (destination.trim().toLowerCase(Locale.ROOT)) {
             case "stdout" -> STDOUT;
             case "stderr" -> STDERR;
             case "file" -> FILE;

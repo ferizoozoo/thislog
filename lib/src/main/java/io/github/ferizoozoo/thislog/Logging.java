@@ -26,6 +26,7 @@ public class Logging implements Loggable {
     private Logging(String name, LogOptions options) {
         this.name = Objects.requireNonNull(name, "name");
         this.options = Objects.requireNonNull(options, "options");
+        this.currentLevel = options.getLevel();
         this.setupPrinter();
     }
 
@@ -69,6 +70,7 @@ public class Logging implements Loggable {
     @Override
     public synchronized void changeOptions(LogOptions options) {
         this.options = options;
+        this.currentLevel = options.getLevel();
         this.closed = false;
         this.setupPrinter();
     }
