@@ -8,7 +8,7 @@ a **destination** that line is written to. Nothing else is required, and there i
 nothing to configure before the first call works.
 
 > **Status: early.** The core (levels, named loggers, deferred messages, the
-> pattern language, console and file destinations, exception rendering, one
+> pattern language, console and file destinations, full stack traces, one
 > shared writer per file, and a flush on exit) is implemented and covered by
 > tests. The pieces a mature logging library is expected to have —
 > parameterized `{}` messages, appenders, rolling files, MDC, an SLF4J binding —
@@ -140,6 +140,39 @@ LogFormatter withCause = event -> event.getMessage()
 `LogFormatter.colored(...)` wraps any formatter and tints the line by level using
 ANSI escapes. It is opt-in, because it is only right on a terminal.
 
+## Exceptions
+
+Every level method has a form that takes a throwable alongside the message. It
+is rendered under the line it belongs to, exactly as `printStackTrace` would
+render it — the same format every Java reader already knows:
+
+```java
+log.error(() -> "could not complete the checkout", e);
+```
+
+```
+could not complete the checkout
+java.lang.RuntimeException: checkout failed for order 4711
+	at com.acme.Checkout.complete(Checkout.java:18)
+Caused by: java.lang.IllegalStateException: could not price the basket
+	at com.acme.Pricing.price(Pricing.java:66)
+	Suppressed: java.lang.IllegalStateException: and the session would not close
+		at com.acme.Session.close(Session.java:41)
+		... 3 more
+	... 2 more
+```
+
+Causes, suppressed exceptions, and the `... n more` elision of frames already
+shown above all behave as the JDK's does, and a cause chain that loops back on
+itself ends in `[CIRCULAR REFERENCE: ...]` rather than spinning.
+
+The whole trace is built into the line and written once, so a trace never
+interleaves with another thread's — see [Destinations](#destinations).
+
+The trace is appended by the logger rather than by the formatter, so a custom
+`LogFormatter` cannot currently suppress it or move it. A `%ex` conversion is
+the natural home for that, and is not there yet.
+
 ## Destinations
 
 ```java
@@ -201,19 +234,17 @@ Roughly in the order it makes sense to build:
    supplier form.
 2. **More of the pattern language** — column widths (`%-5level`), a date format
    per pattern (`%date{HH:mm:ss}`), `%F`/`%L` for the call site.
-3. **Stack frames** — exceptions currently render as `toString()` per cause, with
-   no frames and no suppressed exceptions.
-4. **Appenders** — one logger writing to many destinations, each with its own
+3. **Appenders** — one logger writing to many destinations, each with its own
    formatter, level, and filters.
-5. **Rolling files** — size and time based, with retention and compression.
-6. **Logger hierarchy** — `com.acme.checkout.Flow` inheriting from `com.acme` and
+4. **Rolling files** — size and time based, with retention and compression.
+5. **Logger hierarchy** — `com.acme.checkout.Flow` inheriting from `com.acme` and
    a root logger.
-7. **Configuration files** — with a defined precedence over system properties and
+6. **Configuration files** — with a defined precedence over system properties and
    the environment.
-8. **MDC** — [`Context`](lib/src/main/java/io/github/ferizoozoo/thislog/Context.java)
+7. **MDC** — [`Context`](lib/src/main/java/io/github/ferizoozoo/thislog/Context.java)
    exists but is not yet wired into events or formatters.
-9. **Structured output** — a JSON formatter and key-value pairs on the event.
-10. **An SLF4J provider**, so existing applications can swap it in unchanged.
+8. **Structured output** — a JSON formatter and key-value pairs on the event.
+9. **An SLF4J provider**, so existing applications can swap it in unchanged.
 
 ## Contributing
 

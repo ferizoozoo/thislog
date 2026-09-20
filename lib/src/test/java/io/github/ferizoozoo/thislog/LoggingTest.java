@@ -175,6 +175,31 @@ public class LoggingTest {
         return LogOptions.createFromEnvironment().withFormatter(formatter);
     }
 
+    /** A frame that renders as {@code com.acme.Checkout.complete(Checkout.java:17)}. */
+    private static StackTraceElement frame(String type, String method, int line) {
+        var simpleName = type.substring(type.lastIndexOf('.') + 1);
+        return new StackTraceElement(type, method, simpleName + ".java", line);
+    }
+
+    /**
+     * Gives a throwable a stack trace of the test's choosing. A real one
+     * carries wherever JUnit happened to call from, which is both unreadable in
+     * an assertion and free to change; these frames are the whole of what the
+     * logger has to render.
+     */
+    private static <T extends Throwable> T thrownAt(T thrown, StackTraceElement... frames) {
+        thrown.setStackTrace(frames);
+        return thrown;
+    }
+
+    /** One frame on top of a tail two throwables share. */
+    private static StackTraceElement[] concat(StackTraceElement top, StackTraceElement[] rest) {
+        var frames = new StackTraceElement[rest.length + 1];
+        frames[0] = top;
+        System.arraycopy(rest, 0, frames, 1, rest.length);
+        return frames;
+    }
+
     // ---------------------------------------------------------------------
     // Each level method logs at its own level.
     //
@@ -890,62 +915,185 @@ public class LoggingTest {
     @Test
     public void theExceptionIsPrintedBeneathTheLineItBelongsTo() {
         var formatter = new RecordingFormatter();
+        var boom = thrownAt(new IllegalStateException("payment declined"),
+                frame("com.acme.Payments", "charge", 42));
 
-        logger(formatter).error(() -> "payment failed", new IllegalStateException("payment declined"));
+        logger(formatter).error(() -> "payment failed", boom);
 
         assertEquals(formatter.only().rendered() + NL
-                + "java.lang.IllegalStateException: payment declined" + NL,
+                + "java.lang.IllegalStateException: payment declined" + NL
+                + "\tat com.acme.Payments.charge(Payments.java:42)" + NL,
                 stdoutText());
     }
 
     @Test
-    public void anExceptionIsRenderedByToStringSoNoFramesAppear() {
-        var formatter = new RecordingFormatter();
+    public void anExceptionRendersEveryFrameItCarries() {
+        var boom = thrownAt(new IllegalStateException("payment declined"),
+                frame("com.acme.Payments", "charge", 42),
+                frame("com.acme.Checkout", "complete", 17),
+                frame("com.acme.Main", "main", 8));
 
-        logger(formatter).error(() -> "payment failed", new IllegalStateException("payment declined"));
+        logger(PatternFormatter.create("%s")).error(() -> "payment failed", boom);
 
-        // Characterises the rendering in use: Throwable.toString() gives the
-        // type and the message. Switching to printStackTrace would add the
-        // frames, and this test is where that change would announce itself.
-        assertFalse("toString carries no frames, got: " + stdoutText(),
-                stdoutText().contains("at io.github.ferizoozoo.thislog.LoggingTest"));
+        assertEquals("payment failed" + NL
+                + "java.lang.IllegalStateException: payment declined" + NL
+                + "\tat com.acme.Payments.charge(Payments.java:42)" + NL
+                + "\tat com.acme.Checkout.complete(Checkout.java:17)" + NL
+                + "\tat com.acme.Main.main(Main.java:8)" + NL,
+                stdoutText());
+    }
+
+    @Test
+    public void aRealExceptionCarriesTheFrameItWasThrownFrom() {
+        // The frames the other tests plant are the test's own; this is the one
+        // that proves a throwable arriving from a real call site keeps the
+        // trace the JVM gave it.
+        logger(PatternFormatter.create("%s")).error(() -> "load failed",
+                new IllegalStateException("could not load order 4711"));
+
+        assertTrue("the throwing frame belongs in the output, got: " + stdoutText(),
+                stdoutText().contains("\tat io.github.ferizoozoo.thislog.LoggingTest"
+                        + ".aRealExceptionCarriesTheFrameItWasThrownFrom"));
+    }
+
+    @Test
+    public void anExceptionWithNoFramesRendersJustItsLine() {
+        var boom = thrownAt(new IllegalStateException("no trace to give"));
+
+        logger(PatternFormatter.create("%s")).error(() -> "load failed", boom);
+
+        assertEquals("load failed" + NL
+                + "java.lang.IllegalStateException: no trace to give" + NL,
+                stdoutText());
     }
 
     @Test
     public void aWrappedExceptionShowsItsWholeCauseChain() {
-        var cause = new ArrayIndexOutOfBoundsException("Index 3 out of bounds for length 0");
-        var wrapper = new IllegalStateException("could not load order 4711", cause);
+        var main = frame("com.acme.Main", "main", 8);
+        var cause = thrownAt(new ArrayIndexOutOfBoundsException("Index 3 out of bounds for length 0"),
+                frame("com.acme.Orders", "load", 91), main);
+        var wrapper = thrownAt(new IllegalStateException("could not load order 4711", cause),
+                frame("com.acme.Checkout", "complete", 17), main);
 
         logger(PatternFormatter.create("%s")).error(() -> "load failed", wrapper);
 
         assertEquals("load failed" + NL
                 + "java.lang.IllegalStateException: could not load order 4711" + NL
+                + "\tat com.acme.Checkout.complete(Checkout.java:17)" + NL
+                + "\tat com.acme.Main.main(Main.java:8)" + NL
                 + "Caused by: java.lang.ArrayIndexOutOfBoundsException: "
-                + "Index 3 out of bounds for length 0" + NL,
+                + "Index 3 out of bounds for length 0" + NL
+                + "\tat com.acme.Orders.load(Orders.java:91)" + NL
+                + "\t... 1 more" + NL,
+                stdoutText());
+    }
+
+    @Test
+    public void aCauseRepeatsOnlyTheFramesTheWrapperDoesNotAlreadyShow() {
+        var shared = new StackTraceElement[] {
+                frame("com.acme.Checkout", "complete", 17),
+                frame("com.acme.Server", "dispatch", 204),
+                frame("com.acme.Main", "main", 8),
+        };
+        var cause = thrownAt(new IllegalArgumentException("price was negative"),
+                concat(frame("com.acme.Pricing", "price", 66), shared));
+        var wrapper = thrownAt(new IllegalStateException("could not price the basket", cause), shared);
+
+        logger(PatternFormatter.create("%s")).error(() -> "checkout failed", wrapper);
+
+        // The three frames the two have in common are printed once, under the
+        // wrapper, and counted under the cause.
+        assertEquals("checkout failed" + NL
+                + "java.lang.IllegalStateException: could not price the basket" + NL
+                + "\tat com.acme.Checkout.complete(Checkout.java:17)" + NL
+                + "\tat com.acme.Server.dispatch(Server.java:204)" + NL
+                + "\tat com.acme.Main.main(Main.java:8)" + NL
+                + "Caused by: java.lang.IllegalArgumentException: price was negative" + NL
+                + "\tat com.acme.Pricing.price(Pricing.java:66)" + NL
+                + "\t... 3 more" + NL,
                 stdoutText());
     }
 
     @Test
     public void aCauselessExceptionAddsNoCausedByLine() {
-        logger(PatternFormatter.create("%s")).error(() -> "load failed",
-                new IllegalStateException("could not load order 4711"));
+        var boom = thrownAt(new IllegalStateException("could not load order 4711"),
+                frame("com.acme.Orders", "load", 91));
+
+        logger(PatternFormatter.create("%s")).error(() -> "load failed", boom);
 
         assertEquals("load failed" + NL
-                + "java.lang.IllegalStateException: could not load order 4711" + NL,
+                + "java.lang.IllegalStateException: could not load order 4711" + NL
+                + "\tat com.acme.Orders.load(Orders.java:91)" + NL,
                 stdoutText());
     }
 
     @Test
+    public void aSuppressedExceptionIsRenderedUnderTheOneItGaveWayTo() {
+        var main = frame("com.acme.Main", "main", 8);
+        var boom = thrownAt(new IllegalStateException("write failed"),
+                frame("com.acme.Export", "write", 30), main);
+        boom.addSuppressed(thrownAt(new IllegalStateException("and the file would not close"),
+                frame("com.acme.Export", "close", 55), main));
+
+        logger(PatternFormatter.create("%s")).error(() -> "export failed", boom);
+
+        // try-with-resources produces these, and an indent is what separates
+        // the failure that was kept from the one that gave way to it.
+        assertEquals("export failed" + NL
+                + "java.lang.IllegalStateException: write failed" + NL
+                + "\tat com.acme.Export.write(Export.java:30)" + NL
+                + "\tat com.acme.Main.main(Main.java:8)" + NL
+                + "\tSuppressed: java.lang.IllegalStateException: and the file would not close" + NL
+                + "\t\tat com.acme.Export.close(Export.java:55)" + NL
+                + "\t\t... 1 more" + NL,
+                stdoutText());
+    }
+
+    @Test
+    public void aTraceIsRenderedExactlyAsPrintStackTraceWouldRenderIt() {
+        // The frames the tests above plant are readable but synthetic. This one
+        // takes a real throwable -- deep frames, two suppressed exceptions, one
+        // of them with a cause of its own -- and holds the whole rendering
+        // against the JDK's, which is the format every Java reader already
+        // knows. It is also the only check that the elision counts are right
+        // for a trace nobody chose.
+        var cause = new IllegalArgumentException("price was negative");
+        var wrapper = new IllegalStateException("could not price the basket", cause);
+        wrapper.addSuppressed(new IllegalStateException("and the session would not close",
+                new java.io.IOException("socket already shut")));
+        wrapper.addSuppressed(new IllegalStateException("and the cart would not unlock"));
+        var boom = new RuntimeException("checkout failed for order 4711", wrapper);
+
+        var expected = new ByteArrayOutputStream();
+        try (var into = new PrintStream(expected, true, StandardCharsets.UTF_8)) {
+            boom.printStackTrace(into);
+        }
+
+        logger(PatternFormatter.create("%s")).error(() -> "", boom);
+
+        // The pattern writes the empty message and its line break first.
+        assertEquals(NL + expected.toString(StandardCharsets.UTF_8), stdoutText());
+    }
+
+    @Test
     public void aCyclicCauseChainTerminatesRatherThanSpinning() {
-        var first = new IllegalStateException("first");
-        var second = new IllegalStateException("second", first);
+        var main = frame("com.acme.Main", "main", 8);
+        var first = thrownAt(new IllegalStateException("first"),
+                frame("com.acme.One", "call", 11), main);
+        var second = thrownAt(new IllegalStateException("second", first),
+                frame("com.acme.Two", "call", 22), main);
         first.initCause(second);
 
         logger(PatternFormatter.create("%s")).error(() -> "tangled", second);
 
         assertEquals("tangled" + NL
                 + "java.lang.IllegalStateException: second" + NL
-                + "Caused by: java.lang.IllegalStateException: first" + NL,
+                + "\tat com.acme.Two.call(Two.java:22)" + NL
+                + "\tat com.acme.Main.main(Main.java:8)" + NL
+                + "Caused by: java.lang.IllegalStateException: first" + NL
+                + "\tat com.acme.One.call(One.java:11)" + NL
+                + "\t... 1 more" + NL
+                + "Caused by: [CIRCULAR REFERENCE: java.lang.IllegalStateException: second]" + NL,
                 stdoutText());
     }
 

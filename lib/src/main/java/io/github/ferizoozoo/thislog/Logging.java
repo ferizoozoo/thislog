@@ -3,8 +3,6 @@ package io.github.ferizoozoo.thislog;
 import java.io.OutputStream;
 import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
-import java.util.Collections;
-import java.util.IdentityHashMap;
 import java.util.Objects;
 import java.util.function.Supplier;
 
@@ -14,8 +12,7 @@ public class Logging implements Loggable {
 
     private static final LogLevel FLUSH_THRESHOLD = LogLevel.ERROR;
 
-    private static final PrintStream DISCARD =
-            new PrintStream(OutputStream.nullOutputStream(), false);
+    private static final PrintStream DISCARD = new PrintStream(OutputStream.nullOutputStream(), false);
 
     private final String name;
     private volatile LogLevel currentLevel = LogLevel.TRACE;
@@ -142,7 +139,7 @@ public class Logging implements Loggable {
         try {
             var line = new StringBuilder(this.options.getFormatter().format(logEvent));
             if (logEvent.getThrown() != null) {
-                appendThrowable(line, logEvent.getThrown());
+                line.append(LINE_SEPARATOR).append(StackTraces.render(logEvent.getThrown()));
             }
             this.printer.write((line + LINE_SEPARATOR).getBytes(StandardCharsets.UTF_8));
         } catch (Exception e) {
@@ -159,18 +156,6 @@ public class Logging implements Loggable {
             this.reportedWriteFailure = true;
             System.err.println("thislog: the destination for '" + this.name
                     + "' is failing; log output may be lost");
-        }
-    }
-
-    private static void appendThrowable(StringBuilder line, Throwable thrown) {
-        line.append(LINE_SEPARATOR).append(thrown.toString().stripTrailing());
-
-        var seen = Collections.newSetFromMap(new IdentityHashMap<Throwable, Boolean>());
-        seen.add(thrown);
-        for (var cause = thrown.getCause(); cause != null && seen.add(cause); cause = cause.getCause()) {
-            line.append(LINE_SEPARATOR)
-                    .append("Caused by: ")
-                    .append(cause.toString().stripTrailing());
         }
     }
 
