@@ -55,6 +55,16 @@ public class PatternFormatter implements LogFormatter {
         return this.pattern;
     }
 
+    @Override
+    public boolean equals(Object other) {
+        return other instanceof PatternFormatter that && this.pattern.equals(that.pattern);
+    }
+
+    @Override
+    public int hashCode() {
+        return this.pattern.hashCode();
+    }
+
     private static List<Function<LogEvent, String>> compile(String pattern) {
         var parts = new ArrayList<Function<LogEvent, String>>();
         var literal = new StringBuilder();

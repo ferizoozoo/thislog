@@ -51,4 +51,22 @@ public class LogOptions {
     public LogLevel getLevel() {
         return this.level;
     }
+
+    @Override
+    public boolean equals(Object other) {
+        if (this == other) {
+            return true;
+        }
+        if (!(other instanceof LogOptions that)) {
+            return false;
+        }
+        return this.level == that.level
+                && Objects.equals(this.destination, that.destination)
+                && Objects.equals(this.formatter, that.formatter);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(this.destination, this.formatter, this.level);
+    }
 }

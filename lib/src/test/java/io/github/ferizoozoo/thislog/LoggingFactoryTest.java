@@ -12,6 +12,8 @@ import java.util.stream.IntStream;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotEquals;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNotSame;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertThrows;
@@ -28,20 +30,90 @@ import org.junit.Test;
 public class LoggingFactoryTest {
 
     private final PrintStream realStdout = System.out;
+    private final PrintStream realStderr = System.err;
 
     private ByteArrayOutputStream written;
+    private ByteArrayOutputStream warned;
 
     @Before
     public void startClean() {
         LoggingFactory.clear();
         written = new ByteArrayOutputStream();
+        warned = new ByteArrayOutputStream();
         System.setOut(new PrintStream(written, true, StandardCharsets.UTF_8));
+        System.setErr(new PrintStream(warned, true, StandardCharsets.UTF_8));
     }
 
     @After
     public void restore() {
         LoggingFactory.clear();
         System.setOut(realStdout);
+        System.setErr(realStderr);
+    }
+
+    private String stderr() {
+        return warned.toString(StandardCharsets.UTF_8);
+    }
+
+    @Test
+    public void aFreshNameIsBuiltRatherThanComingBackEmpty() {
+        assertNotNull("get is how a logger is obtained; a new name has to build one",
+                LoggingFactory.get("com.acme.brand.new", plain()));
+        assertTrue(LoggingFactory.has("com.acme.brand.new"));
+    }
+
+    @Test
+    public void aFreshNameIsUsableImmediately() {
+        var recorder = new Recorder();
+
+        LoggingFactory.get("com.acme.first.call", plain().withFormatter(recorder))
+                .info(() -> "written through the logger get just built");
+
+        assertEquals(List.of("written through the logger get just built"), recorder.messages);
+    }
+
+    @Test
+    public void theOptionsOfTheFirstCallerAreTheOnesThatApply() {
+        var first = new Recorder();
+        var second = new Recorder();
+
+        var log = LoggingFactory.get("com.acme.db", plain().withFormatter(first));
+        LoggingFactory.get("com.acme.db", plain().withFormatter(second));
+        log.info(() -> "line");
+
+        assertEquals("the first caller configured the logger", List.of("line"), first.messages);
+        assertEquals("the second caller's formatter must not take over", List.of(), second.messages);
+    }
+
+    @Test
+    public void optionsDroppedOnAnExistingNameAreReported() {
+        LoggingFactory.get("com.acme.db", plain());
+
+        LoggingFactory.get("com.acme.db", plain().withLevel(LogLevel.ERROR));
+
+        assertTrue("a dropped configuration must say so: " + stderr(),
+                stderr().contains("com.acme.db"));
+        assertTrue(stderr(), stderr().contains("changeOptions"));
+    }
+
+    @Test
+    public void matchingOptionsOnAnExistingNameAreSilent() {
+        LoggingFactory.get("com.acme.db", plain());
+
+        LoggingFactory.get("com.acme.db", plain());
+
+        assertEquals("nothing was dropped, so there is nothing to report", "", stderr());
+    }
+
+    @Test
+    public void equivalentOptionsBuiltSeparatelyCountAsTheSame() {
+        // Otherwise every second get() of a name warns about options that
+        // differ only by being a second object.
+        assertEquals(LogOptions.createFromEnvironment(), LogOptions.createFromEnvironment());
+        assertEquals(LogOptions.createFromEnvironment().hashCode(),
+                LogOptions.createFromEnvironment().hashCode());
+        assertEquals(PatternFormatter.create("%level %m"), PatternFormatter.create("%level %m"));
+        assertNotEquals(PatternFormatter.create("%m"), PatternFormatter.create("%level %m"));
     }
 
     @Test

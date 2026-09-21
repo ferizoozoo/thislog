@@ -13,8 +13,7 @@ public final class LoggingFactory {
 
     private static final Map<String, Loggable> LOGGERS = new ConcurrentHashMap<>();
 
-    private static final Set<Loggable> LIVE =
-            Collections.newSetFromMap(new WeakHashMap<Loggable, Boolean>());
+    private static final Set<Loggable> LIVE = Collections.newSetFromMap(new WeakHashMap<Loggable, Boolean>());
 
     static void track(Loggable logger) {
         synchronized (LIVE) {
@@ -30,7 +29,21 @@ public final class LoggingFactory {
     public static Loggable get(String name, LogOptions options) {
         Objects.requireNonNull(name, "name");
         Objects.requireNonNull(options, "options");
+
+        var existing = LOGGERS.get(name);
+        if (existing != null) {
+            reportIgnoredOptions(name, existing, options);
+            return existing;
+        }
         return LOGGERS.computeIfAbsent(name, n -> Logging.create(n, options));
+    }
+
+    private static void reportIgnoredOptions(String name, Loggable existing, LogOptions ignored) {
+        if (ignored.equals(existing.getOptions())) {
+            return;
+        }
+        System.err.println("thislog: '" + name + "' already exists and keeps the options it was built with;"
+                + " the ones passed here are ignored. Use changeOptions to reconfigure it.");
     }
 
     public static void add(String name, Loggable logger) {
