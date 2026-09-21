@@ -54,9 +54,9 @@ import io.github.ferizoozoo.thislog.LoggingFactory;
 
 var log = LoggingFactory.get(OrderRouter.class, LogOptions.createFromEnvironment());
 
-log.info(() -> "order 4711 accepted");
-log.warn(() -> "stock running low");
-log.error(() -> "could not price the basket", new IllegalStateException("pricing failed"));
+log.info("order 4711 accepted");
+log.warn("stock running low");
+log.error("could not price the basket", new IllegalStateException("pricing failed"));
 ```
 
 A name resolves to exactly one logger, wherever it is asked for. Taking the same
@@ -67,11 +67,21 @@ instance, so configuring it in one place reaches every holder.
 
 `TRACE < DEBUG < INFO < WARN < ERROR < FATAL`.
 
-A message is a `Supplier<String>`, so nothing is built for a line that will not
-be written. Every level has that one-argument form and a form that also takes a
-throwable. A logger starts at `INFO`, so `TRACE` and `DEBUG` are dropped until
-you lower it; anything below the threshold is dropped before the supplier is
-ever called.
+A message is either a `String` or a `Supplier<String>`:
+
+```java
+log.info("order 4711 accepted");                   // already a string
+log.debug(() -> describe(everyCandidateRoute()));  // built only if it is written
+```
+
+Take the `String` form when the message is a literal or already in hand, and the
+supplier form when building it costs something — a supplier is never called for
+a line that will not be written, which is the whole reason to defer. Each of the
+six levels has both forms, and a second form of each that also takes a
+throwable.
+
+A logger starts at `INFO`, so `TRACE` and `DEBUG` are dropped until you lower
+it.
 
 The threshold comes from the options the logger was built with, so it can be set
 before the first line is written:
@@ -87,7 +97,7 @@ or moved afterwards, on a logger already in use:
 log.setCurrentLogLevel(LogLevel.WARN);
 
 log.info(() -> "dropped");   // the supplier is never called
-log.warn(() -> "kept");
+log.warn("kept");
 ```
 
 `changeOptions` carries a level like any other option, so it resets a threshold
@@ -161,7 +171,7 @@ is rendered under the line it belongs to, exactly as `printStackTrace` would
 render it — the same format every Java reader already knows:
 
 ```java
-log.error(() -> "could not complete the checkout", e);
+log.error("could not complete the checkout", e);
 ```
 
 ```
@@ -250,8 +260,8 @@ library currently does.
 Roughly in the order it makes sense to build:
 
 1. **Parameterized messages** — `log.info("user {} did {}", id, action)`, for the
-   fixed-arity call SLF4J users expect. Deferral is already covered by the
-   supplier form.
+   fixed-arity call SLF4J users expect. The plain `String` and `Supplier<String>`
+   forms are both in; what is left is the `{}` substitution.
 2. **More of the pattern language** — column widths (`%-5level`), a date format
    per pattern (`%date{HH:mm:ss}`), `%F`/`%L` for the call site.
 3. **Appenders** — one logger writing to many destinations, each with its own

@@ -290,6 +290,112 @@ public class LoggingTest {
         assertEquals(6, stdoutText().lines().count());
     }
 
+    // ---------------------------------------------------------------------
+    // The same six methods, handed a String instead of a Supplier.
+    // ---------------------------------------------------------------------
+
+    @Test
+    public void everySixMethodsTakeAPlainStringAndMapToTheirOwnLevel() {
+        var formatter = new RecordingFormatter();
+        var log = logger(formatter);
+
+        log.trace("kept");
+        log.debug("kept");
+        log.info("kept");
+        log.warn("kept");
+        log.error("kept");
+        log.fatal("kept");
+
+        assertEquals(
+                List.of(LogLevel.TRACE, LogLevel.DEBUG, LogLevel.INFO,
+                        LogLevel.WARN, LogLevel.ERROR, LogLevel.FATAL),
+                formatter.calls.stream().map(Call::level).toList());
+        assertEquals(6, stdoutText().lines().count());
+    }
+
+    @Test
+    public void aStringMessageRendersExactlyAsTheSupplierFormWould() {
+        var fromString = new RecordingFormatter();
+        var fromSupplier = new RecordingFormatter();
+
+        logger(fromString).info("order 4711 accepted");
+        logger(fromSupplier).info(() -> "order 4711 accepted");
+
+        assertEquals(fromSupplier.only().message(), fromString.only().message());
+        assertEquals(fromSupplier.only().level(), fromString.only().level());
+        assertEquals(fromSupplier.only().rendered(), fromString.only().rendered());
+    }
+
+    @Test
+    public void everySixMethodsTakeAStringAndAThrowable() {
+        var formatter = new RecordingFormatter();
+        var log = logger(formatter);
+        var boom = new IllegalStateException("boom");
+
+        log.trace("t", boom);
+        log.debug("d", boom);
+        log.info("i", boom);
+        log.warn("w", boom);
+        log.error("e", boom);
+        log.fatal("f", boom);
+
+        assertEquals(
+                List.of(LogLevel.TRACE, LogLevel.DEBUG, LogLevel.INFO,
+                        LogLevel.WARN, LogLevel.ERROR, LogLevel.FATAL),
+                formatter.calls.stream().map(Call::level).toList());
+        assertEquals(Collections.nCopies(6, boom),
+                formatter.calls.stream().map(Call::thrown).toList());
+    }
+
+    @Test
+    public void aStringMessageBelowTheThresholdIsDroppedLikeAnyOther() {
+        var formatter = new RecordingFormatter();
+        var log = logger(formatter);
+
+        log.setCurrentLogLevel(LogLevel.WARN);
+        log.info("dropped");
+        log.warn("kept");
+
+        assertEquals(List.of("kept"),
+                formatter.calls.stream().map(Call::message).toList());
+    }
+
+    @Test
+    public void aNullStringMessageDoesNotTakeDownTheCallSite() {
+        var formatter = new RecordingFormatter();
+
+        logger(formatter).info((String) null);
+
+        assertNull("a null message must reach the event rather than throwing",
+                formatter.only().message());
+        assertEquals(formatter.only().rendered() + NL, stdoutText());
+    }
+
+    @Test
+    public void theStringFormGoesThroughTheSameLogMethodAsTheSupplierForm() {
+        var levels = new ArrayList<LogLevel>();
+        var log = new Loggable() {
+            @Override
+            public void log(LogLevel level, Supplier<String> message, Throwable thrown) {
+                levels.add(level);
+            }
+
+            @Override public String getName() { return "custom"; }
+            @Override public void close() { }
+            @Override public void flush() { }
+            @Override public void changeOptions(LogOptions options) { }
+            @Override public LogOptions getOptions() { return null; }
+            @Override public LogLevel getCurrentLogLevel() { return LogLevel.TRACE; }
+            @Override public void setCurrentLogLevel(LogLevel level) { }
+            @Override public boolean isEnabled(LogLevel level) { return true; }
+        };
+
+        log.warn("a custom Loggable gets the String form for free");
+
+        assertEquals("one implemented method still carries every overload",
+                List.of(LogLevel.WARN), levels);
+    }
+
     @Test
     public void theLevelDecidesTheColourTheFormatterCanReachFor() {
         var formatter = new RecordingFormatter();
