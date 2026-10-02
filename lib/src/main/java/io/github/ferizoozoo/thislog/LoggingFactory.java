@@ -53,7 +53,12 @@ public final class LoggingFactory {
             throw new IllegalArgumentException(
                     "logger is named %s, cannot register it as %s".formatted(logger.getName(), name));
         }
-        LOGGERS.put(name, logger);
+
+        var existing = LOGGERS.putIfAbsent(name, logger);
+        if (existing != null && existing != logger) {
+            throw new IllegalArgumentException("logger named '" + name + "' already exists");
+        }
+
         track(logger);
     }
 
