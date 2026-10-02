@@ -5,6 +5,7 @@ package io.github.ferizoozoo.thislog;
 public class FileAppender implements Appender {
     private final String path;
     private final Appender delegate;
+    private volatile boolean closed;
 
     private FileAppender(String path, LogFormatter formatter) {
         this.path = path;
@@ -17,16 +18,26 @@ public class FileAppender implements Appender {
 
     @Override
     public void append(LogEvent event) {
+        if (this.closed) {
+            return;
+        }
         this.delegate.append(event);
     }
 
     @Override
     public void flush() {
+        if (this.closed) {
+            return;
+        }
         this.delegate.flush();
     }
 
     @Override
-    public void close() {
+    public synchronized void close() {
+        if (this.closed) {
+            return;
+        }
+        this.closed = true;
         this.delegate.close();
         FileStreams.release(this.path);
     }
