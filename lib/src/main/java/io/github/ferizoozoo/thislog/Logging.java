@@ -1,6 +1,9 @@
 package io.github.ferizoozoo.thislog;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Objects;
+import java.util.function.Consumer;
 import java.util.function.Supplier;
 
 public class Logging implements Loggable {
@@ -11,8 +14,9 @@ public class Logging implements Loggable {
     private volatile LogLevel currentLevel = LogLevel.TRACE;
     private volatile LogOptions options;
 
-    private Appender appender;
+    private List<Appender> appenders;
     private volatile boolean closed;
+    private boolean appenderFailureReported;
 
     private Logging(String name, LogOptions options) {
         this.name = Objects.requireNonNull(name, "name");
@@ -28,7 +32,7 @@ public class Logging implements Loggable {
         }
         this.options = options;
         this.currentLevel = options.getLevel();
-        this.appender = opened;
+        this.appenders = List.of(opened);
     }
 
     public static Logging create(String name, LogOptions options) {
@@ -58,11 +62,32 @@ public class Logging implements Loggable {
                     + e + "); keeping the previous configuration");
             return;
         }
-        this.appender.close();
-        this.appender = replacement;
+        // The options describe the first appender only; the ones handed to
+        // addAppender are not theirs to replace.
+        var updated = new ArrayList<>(this.appenders);
+        var previous = updated.set(0, replacement);
+        this.appenders = List.copyOf(updated);
+        guarded(previous, Appender::close);
         this.options = options;
         this.currentLevel = options.getLevel();
         this.closed = false;
+    }
+
+    @Override
+    public synchronized void addAppender(Appender appender) {
+        Objects.requireNonNull(appender, "appender");
+        if (this.closed) {
+            throw new IllegalStateException("logger '" + this.name + "' is closed");
+        }
+        if (this.appenders.contains(appender)) {
+            return;
+        }
+        var updated = new ArrayList<>(this.appenders);
+        updated.add(appender);
+        this.appenders = List.copyOf(updated);
+        // Whether an appender buffers is its own business, so every added one
+        // gets the flush timer and the flush on exit.
+        Flusher.appenderAdded();
     }
 
     @Override
@@ -112,29 +137,53 @@ public class Logging implements Loggable {
         if (this.closed) {
             return;
         }
-        this.appender.flush();
-        this.appender.close();
-        this.appender = Appenders.discardingAppender();
+        for (Appender appender : this.appenders) {
+            guarded(appender, Appender::flush);
+            guarded(appender, Appender::close);
+        }
+        this.appenders = List.of(Appenders.discardingAppender());
         this.closed = true;
     }
 
     @Override
     public synchronized void flush() {
-        this.appender.flush();
+        for (Appender appender : this.appenders) {
+            guarded(appender, Appender::flush);
+        }
     }
 
     private synchronized void write(LogEvent logEvent) {
-        this.appender.append(logEvent);
+        for (Appender appender : this.appenders) {
+            guarded(appender, each -> each.append(logEvent));
+        }
         if (logEvent.getLevel().severity() >= FLUSH_THRESHOLD.severity()) {
             flushAndReportWriteFailure();
         }
     }
 
     private void flushAndReportWriteFailure() {
-        this.appender.flush();
-        if (this.appender.checkFailure()) {
-            System.err.println("thislog: the destination for '" + this.name
-                    + "' is failing; log output may be lost");
+        for (Appender appender : this.appenders) {
+            guarded(appender, each -> {
+                each.flush();
+                if (each.checkFailure()) {
+                    System.err.println("thislog: the destination for '" + this.name
+                            + "' is failing; log output may be lost");
+                }
+            });
+        }
+    }
+
+    // An appender can be anyone's code now, and one that throws must neither
+    // escape a logging call nor cost the other appenders their turn.
+    private void guarded(Appender appender, Consumer<Appender> action) {
+        try {
+            action.accept(appender);
+        } catch (RuntimeException e) {
+            if (!this.appenderFailureReported) {
+                this.appenderFailureReported = true;
+                System.err.println("thislog: an appender for '" + this.name + "' threw (" + e
+                        + "); log output may be lost");
+            }
         }
     }
 }

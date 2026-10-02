@@ -18,6 +18,10 @@ final class Flusher {
         if (!(destination instanceof LogDestination.LogFile)) {
             return;
         }
+        appenderAdded();
+    }
+
+    static void appenderAdded() {
         synchronized (LOCK) {
             registerShutdownHookOnce();
             if (timer != null || intervalMs <= 0) {

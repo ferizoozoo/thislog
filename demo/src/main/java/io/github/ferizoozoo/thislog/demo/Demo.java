@@ -39,8 +39,8 @@ public final class Demo {
     /**
      * The constructor applies the options it is handed, so asking the factory
      * for a name it has not seen is all the configuration a logger needs.
-     * Applying them a second time would open a second destination and orphan
-     * the first, since changing options does not release what it replaces.
+     * Applying them a second time with changeOptions would only reopen the
+     * same destination.
      */
     private static Loggable configured(String name, LogOptions options) {
         return LoggingFactory.get(name, options);

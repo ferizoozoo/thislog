@@ -11,8 +11,8 @@ nothing to configure before the first call works.
 > pattern language, console and file destinations, full stack traces, one
 > shared writer per file, and a flush on exit) is implemented and covered by
 > tests. The pieces a mature logging library is expected to have —
-> parameterized `{}` messages, appenders, rolling files, MDC, an SLF4J binding —
-> are not there yet. See [Roadmap](#roadmap).
+> parameterized `{}` messages, rolling files, MDC, an SLF4J binding — are not
+> there yet. See [Roadmap](#roadmap).
 
 ## Requirements
 
@@ -62,6 +62,11 @@ log.error("could not price the basket", new IllegalStateException("pricing faile
 A name resolves to exactly one logger, wherever it is asked for. Taking the same
 name twice — from different classes, on different threads — hands back the same
 instance, so configuring it in one place reaches every holder.
+
+A logger built by hand joins the same registry through
+`LoggingFactory.add(name, logger)`. A name that is already taken by another
+logger is not replaced: `add` throws `IllegalArgumentException`, and the name
+keeps resolving to the logger it had.
 
 ## Levels
 
@@ -193,7 +198,7 @@ itself ends in `[CIRCULAR REFERENCE: ...]` rather than spinning.
 The whole trace is built into the line and written once, so a trace never
 interleaves with another thread's — see [Destinations](#destinations).
 
-The trace is appended by the logger rather than by the formatter, so a custom
+The trace is appended by the appender rather than by the formatter, so a custom
 `LogFormatter` cannot currently suppress it or move it. A `%ex` conversion is
 the natural home for that, and is not there yet.
 
@@ -217,9 +222,38 @@ always loses its tail there. That is inherent, not a gap.
 on discards anything logged to it — a logging call never throws, before or after.
 `changeOptions(...)` puts a closed logger back to work.
 
+A destination that will not open — a file in a directory that does not exist,
+say — is reported on stderr and never thrown. A new logger falls back to
+stdout, and `getOptions()` says so. A `changeOptions(...)` that fails changes
+nothing at all: the logger keeps the destination, formatter, and level it had,
+and a closed logger stays closed.
+
 > Two loggers pointed at the same path share one stream, so every line arrives
 > whole. They still interleave in order: a line from one, then a line from the
 > other.
+
+### More than one destination
+
+The options describe one destination. `addAppender` gives a logger another,
+with a formatter of its own:
+
+```java
+log.addAppender(FileAppender.create("audit.log",
+        PatternFormatter.create("%date %level %m")));
+log.addAppender(StreamAppender.wrapping(System.err, PatternFormatter.create("%m")));
+```
+
+Every line the logger's level lets through goes to each appender. An added
+appender belongs to the logger from then on: it is flushed with it and closed
+with it, and `changeOptions(...)` leaves it in place — the options only replace
+the destination they describe. `StreamAppender.create` closes the stream it is
+given when the logger closes; `StreamAppender.wrapping` leaves it open, which
+is the one to use for a stream you do not own.
+
+`Appender` is an interface, so a destination this library does not ship is a
+class of your own. One that throws is reported on stderr once and does not
+cost the other appenders their line. A closed logger refuses a new appender
+with `IllegalStateException`.
 
 ## Configuration from the environment
 
@@ -265,14 +299,16 @@ Roughly in the order it makes sense to build:
 2. **More of the pattern language** — column widths (`%-5level`), a date format
    per pattern (`%date{HH:mm:ss}`), `%F`/`%L` for the call site.
 3. **Appenders** — one logger writing to many destinations, each with its own
-   formatter, level, and filters.
+   formatter, level, and filters. Several appenders on a logger, each with its
+   own formatter, are in through `addAppender`; what is left is a level and
+   filters per appender, and taking one away again.
 4. **Rolling files** — size and time based, with retention and compression.
 5. **Logger hierarchy** — `com.acme.checkout.Flow` inheriting from `com.acme` and
    a root logger.
 6. **Configuration files** — with a defined precedence over system properties and
    the environment.
-7. **MDC** — [`Context`](lib/src/main/java/io/github/ferizoozoo/thislog/Context.java)
-   exists but is not yet wired into events or formatters.
+7. **MDC** — per-thread context carried on the event and reachable from a
+   pattern.
 8. **Structured output** — a JSON formatter and key-value pairs on the event.
 9. **An SLF4J provider**, so existing applications can swap it in unchanged.
 
