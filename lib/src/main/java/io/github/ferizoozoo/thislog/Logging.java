@@ -16,9 +16,19 @@ public class Logging implements Loggable {
 
     private Logging(String name, LogOptions options) {
         this.name = Objects.requireNonNull(name, "name");
-        this.options = Objects.requireNonNull(options, "options");
+        Objects.requireNonNull(options, "options");
+        Appender opened;
+        try {
+            opened = openAppenderFor(options);
+        } catch (RuntimeException e) {
+            System.err.println("thislog: cannot apply the logging configuration for '" + name + "' ("
+                    + e + "); falling back to stdout");
+            options = options.withDestination(LogDestination.STDOUT);
+            opened = openAppenderFor(options);
+        }
+        this.options = options;
         this.currentLevel = options.getLevel();
-        this.setupAppender();
+        this.appender = opened;
     }
 
     public static Logging create(String name, LogOptions options) {
@@ -31,41 +41,28 @@ public class Logging implements Loggable {
         return Appenders.logDestinationToAppender(options.getDestination(), options.getFormatter());
     }
 
-    private void setupAppender() {
-        var previous = this.appender;
-        try {
-            var dest = this.options.getDestination();
-            this.appender = appenderFromOptions(this.options);
-            // The new appender is open before the old one lets go, so a file
-            // both point at stays open across the switch.
-            if (previous != null) {
-                previous.close();
-            }
-            // A buffered destination is the only reason to run a flush timer,
-            // and changeOptions reaches one without going through the factory.
-            Flusher.destinationOpened(dest);
-        } catch (RuntimeException e) {
-            System.err.println("thislog: cannot apply the logging configuration in the environment ("
-                    + e + "); falling back to stdout");
-            if (this.appender == null || this.appender == Appenders.discardingAppender()) {
-                this.resetAppender();
-            }
-        }
-    }
-
-    private void resetAppender() {
-        if (this.appender != null) {
-            this.appender.close();
-        }
-        this.appender = Appenders.logDestinationToAppender(LogDestination.STDOUT, this.options.getFormatter());
+    private static Appender openAppenderFor(LogOptions options) {
+        var appender = appenderFromOptions(options);
+        Flusher.destinationOpened(options.getDestination());
+        return appender;
     }
 
     @Override
     public synchronized void changeOptions(LogOptions options) {
+        Objects.requireNonNull(options, "options");
+        Appender replacement;
+        try {
+            replacement = openAppenderFor(options);
+        } catch (RuntimeException e) {
+            System.err.println("thislog: cannot apply the logging configuration for '" + this.name + "' ("
+                    + e + "); keeping the previous configuration");
+            return;
+        }
+        this.appender.close();
+        this.appender = replacement;
         this.options = options;
         this.currentLevel = options.getLevel();
         this.closed = false;
-        this.setupAppender();
     }
 
     @Override

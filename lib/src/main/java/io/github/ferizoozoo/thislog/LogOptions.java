@@ -16,12 +16,16 @@ public class LogOptions {
     }
 
     public static LogOptions createFromEnvironment() {
-        var options = new LogOptions(
-                LogDestination.create(System.getenv().getOrDefault("LOG_DESTINATION", "stdout")),
-                PatternFormatter
-                        .create(System.getenv().getOrDefault("LOG_FORMATTER", PatternFormatter.DEFAULT_PATTERN)),
-                LogLevel.create(System.getenv().getOrDefault("LOG_LEVEL", DEFAULT_LEVEL.name())));
-        return options;
+        try {
+            var destination = LogDestination.create(System.getenv().getOrDefault("LOG_DESTINATION", "stdout"));
+            var formatter = PatternFormatter.create(System.getenv().getOrDefault("LOG_FORMATTER", PatternFormatter.DEFAULT_PATTERN));
+            var level = LogLevel.create(System.getenv().getOrDefault("LOG_LEVEL", DEFAULT_LEVEL.name()));
+            var options = new LogOptions(destination, formatter, level);
+            return options;
+        } catch (Exception e) {
+            return new LogOptions(LogDestination.create("stdout"), PatternFormatter.create(PatternFormatter.DEFAULT_PATTERN), DEFAULT_LEVEL);
+        }
+        
     }
 
     public static LogOptions createFromParameter(LogDestination destination, LogFormatter formatter, LogLevel level) {

@@ -97,7 +97,7 @@ public class LoggingStartupTest {
     @Test
     public void anUnreadableConfigurationIsAnnouncedOnStandardError() throws Exception {
         var directory = tempFolder.newFolder();
-        configured("com.acme.Boot",
+        Logging.create("com.acme.Boot",
                 plainlyTo(LogDestination.file(directory.getAbsolutePath())));
 
         assertTrue("the reason should reach stderr, got: " + stderrText(),
@@ -120,7 +120,7 @@ public class LoggingStartupTest {
     public void aDestinationThatCannotBeOpenedFallsBackToStdout() throws Exception {
         var directory = tempFolder.newFolder();
 
-        var log = configured("com.acme.Boot",
+        var log = Logging.create("com.acme.Boot",
                 plainlyTo(LogDestination.file(directory.getAbsolutePath())));
 
         log.info(() -> "still audible");
@@ -129,6 +129,52 @@ public class LoggingStartupTest {
                 "still audible" + NL, stdoutText());
         assertTrue("and the failure should be announced, got: " + stderrText(),
                 stderrText().contains("falling back to stdout"));
+    }
+
+    @Test
+    public void aLoggerThatFellBackToStdoutSaysSoInItsOptions() throws Exception {
+        var directory = tempFolder.newFolder();
+
+        var log = Logging.create("com.acme.Boot",
+                plainlyTo(LogDestination.file(directory.getAbsolutePath())));
+
+        assertEquals("the options should name the destination actually in use",
+                LogDestination.STDOUT, log.getOptions().getDestination());
+    }
+
+    @Test
+    public void aReconfigureThatCannotBeAppliedChangesNothingAtAll() throws Exception {
+        var sink = tempFolder.newFile();
+        var directory = tempFolder.newFolder();
+        var before = plainlyTo(LogDestination.file(sink.getAbsolutePath())).withLevel(LogLevel.INFO);
+        var log = Logging.create("com.acme.Boot", before);
+
+        log.changeOptions(before
+                .withDestination(LogDestination.file(directory.getAbsolutePath()))
+                .withFormatter(PatternFormatter.create("replaced %m"))
+                .withLevel(LogLevel.DEBUG));
+        log.debug(() -> "below the level that was in force");
+        log.info(() -> "rendered as before");
+        log.close();
+
+        assertEquals("the options should still be the ones in force", before, log.getOptions());
+        assertEquals("the level should not move on its own", LogLevel.INFO, log.getCurrentLogLevel());
+        assertEquals("neither the level nor the formatter of a failed move should apply",
+                java.util.List.of("rendered as before"), Files.readAllLines(sink.toPath()));
+        assertTrue("and the notice should say what happened instead, got: " + stderrText(),
+                stderrText().contains("keeping the previous configuration"));
+    }
+
+    @Test
+    public void aClosedLoggerStaysClosedWhenItsReconfigureCannotBeApplied() throws Exception {
+        var directory = tempFolder.newFolder();
+        var log = Logging.create("com.acme.Boot", plainlyTo(LogDestination.STDOUT));
+        log.close();
+
+        log.changeOptions(plainlyTo(LogDestination.file(directory.getAbsolutePath())));
+        log.info(() -> "discarded");
+
+        assertEquals("a failed revival should not reopen the logger somewhere else", "", stdoutText());
     }
 
     @Test
