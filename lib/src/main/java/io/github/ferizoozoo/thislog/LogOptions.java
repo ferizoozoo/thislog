@@ -23,7 +23,7 @@ public class LogOptions {
             var options = new LogOptions(destination, formatter, level);
             return options;
         } catch (Exception e) {
-            return new LogOptions(LogDestination.create("stdout"), PatternFormatter.create(PatternFormatter.DEFAULT_PATTERN), DEFAULT_LEVEL);
+            throw new IllegalArgumentException("Failed to create LogOptions from environment variables", e);
         }
         
     }
