@@ -1,0 +1,107 @@
+package io.github.ferizoozoo.thislog;
+
+import java.io.OutputStream;
+import java.io.PrintStream;
+import java.nio.charset.StandardCharsets;
+
+public class StreamAppender implements Appender {
+    private static final String LINE_SEPARATOR = System.lineSeparator();
+
+    private final OutputStream outputStream;
+    private final LogFormatter formatter;
+    private final boolean ownsStream;
+    private boolean hasFailed = false;
+    private boolean failureReported = false;
+
+    private StreamAppender(OutputStream outputStream, LogFormatter formatter, boolean ownsStream) {
+        this.outputStream = outputStream;
+        this.formatter = formatter;
+        this.ownsStream = ownsStream;
+    }
+
+    public static StreamAppender create(OutputStream outputStream, LogFormatter formatter) {
+        return new StreamAppender(outputStream, formatter, true);
+    }
+
+    public static StreamAppender wrapping(OutputStream outputStream, LogFormatter formatter) {
+        return new StreamAppender(outputStream, formatter, false);
+    }
+
+    @Override
+    public void append(LogEvent event) {
+        String line;
+        try {
+            var logMessageBuilder = new StringBuilder(this.formatter.format(event));
+            if (event.getThrown() != null) {
+                logMessageBuilder.append(LINE_SEPARATOR)
+                        .append(StackTraces.render(event.getThrown()));
+            }
+            line = logMessageBuilder.toString();
+        } catch (Exception e) {
+            reportFormattingFailure(event, e);
+            return;
+        }
+        writeLine(line);
+    }
+
+    @Override
+    public void flush() {
+        // A PrintStream swallows its IOExceptions, so its error flag is the only
+        // place a failed write shows up; checkError flushes on the way.
+        if (this.outputStream instanceof PrintStream printStream) {
+            if (printStream.checkError()) {
+                this.hasFailed = true;
+            }
+            return;
+        }
+        try {
+            this.outputStream.flush();
+        } catch (Exception e) {
+            this.hasFailed = true;
+        }
+    }
+
+    @Override
+    public void close() {
+        if (!this.ownsStream) {
+            return;
+        }
+        try {
+            this.outputStream.close();
+        } catch (Exception e) {
+            this.hasFailed = true;
+        }
+    }
+
+    @Override
+    public boolean checkFailure() {
+        if (!this.hasFailed || this.failureReported) {
+            return false;
+        }
+        this.failureReported = true;
+        return true;
+    }
+
+    private void writeLine(String line) {
+        try {
+            this.outputStream.write((line + LINE_SEPARATOR).getBytes(StandardCharsets.UTF_8));
+        } catch (Exception e) {
+            this.hasFailed = true;
+        }
+    }
+
+    private void reportFormattingFailure(LogEvent event, Exception failure) {
+        String line;
+        try {
+            var recovery = LogEvent.create("Failed to format log message", LogLevel.ERROR,
+                    System.currentTimeMillis(), event.getLoggerName(), failure);
+            line = this.formatter.format(recovery);
+        } catch (Exception alsoFailed) {
+            line = LogLevel.coloredMessage("Failed to format log message: " + failure, LogLevel.ERROR);
+        }
+        writeLine(line);
+        // The caller only flushes for severe levels, but a dropped line is worth
+        // seeing whatever level provoked it.
+        this.flush();
+    }
+}
