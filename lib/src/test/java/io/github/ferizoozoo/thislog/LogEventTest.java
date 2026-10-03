@@ -25,19 +25,6 @@ import static org.junit.Assert.assertTrue;
 import org.junit.Before;
 import org.junit.Test;
 
-/**
- * The log event: everything the logger knows about a single message.
- *
- * <p>An event is no longer something a caller builds. {@link Logging} creates
- * one inside each level method and hands it to the formatter, so the event's
- * four values are all decided by the library: the message and level come from
- * the call, the timestamp from the logger's clock, and the thread name from
- * whoever is running. The constructor is private, which is what makes those
- * guarantees hold rather than merely being the convention.
- *
- * <p>Two jobs are worth testing separately: being a faithful carrier of what
- * it was created with, and arriving at the formatter intact.
- */
 public class LogEventTest {
 
     private static final String ESC = String.valueOf((char) 27);
@@ -48,15 +35,9 @@ public class LogEventTest {
 
     private static final long TIMEOUT_MS = 5_000;
 
-    /** A timestamp far enough in the past to be distinguishable from "now". */
     private static final long AT = 1_700_000_000_000L;
 
-    /** A logger name for events built directly, without going through a logger. */
     private static final String NAME = "com.acme.Test";
-
-    // ---------------------------------------------------------------------
-    // The event as a value.
-    // ---------------------------------------------------------------------
 
     @Test
     public void anEventCarriesTheMessageLevelAndTimestampItWasCreatedWith() {
@@ -124,16 +105,11 @@ public class LogEventTest {
 
     @Test
     public void aNullMessageIsAccepted() {
-        // create() validates nothing, so a null message is stored and handed
-        // on. aNullMessageDoesNotBringTheLoggerDown covers what happens next.
         assertNull(LogEvent.create(null, LogLevel.INFO, AT, NAME).getMessage());
     }
 
     @Test
     public void aNullLevelIsAccepted() {
-        // Reachable only by calling create() directly: the logger always
-        // supplies a real level, so this cannot arrive through info() and the
-        // rest.
         assertNull(LogEvent.create("no level", null, AT, NAME).getLevel());
     }
 
@@ -152,10 +128,6 @@ public class LogEventTest {
         assertEquals(Long.MAX_VALUE,
                 LogEvent.create("far future", LogLevel.INFO, Long.MAX_VALUE, NAME).getTimestamp());
     }
-
-    // ---------------------------------------------------------------------
-    // The event is immutable, and only the library can build one.
-    // ---------------------------------------------------------------------
 
     @Test
     public void theConstructorIsNotPublic() {
@@ -189,19 +161,11 @@ public class LogEventTest {
         var one = LogEvent.create("same", LogLevel.INFO, AT, NAME);
         var other = LogEvent.create("same", LogLevel.INFO, AT, NAME);
 
-        // Characterises the design as it stands: LogEvent is a plain class
-        // with no equals/hashCode, so two events matching field for field are
-        // still distinct. LogDestination, by contrast, is a record.
         assertNotSame(one, other);
         assertNotEquals(one, other);
         assertEquals(one.getMessage(), other.getMessage());
     }
 
-    // ---------------------------------------------------------------------
-    // The event on the logging path.
-    // ---------------------------------------------------------------------
-
-    /** Keeps the events the logger hands to the formatter. */
     private static final class EventRecorder implements LogFormatter {
         private final List<LogEvent> events = new ArrayList<>();
 
@@ -217,7 +181,6 @@ public class LogEventTest {
         }
     }
 
-    /** Fails the first format, then records, so the recovery event is captured. */
     private static final class FailsOnceThenRecords implements LogFormatter {
         private final EventRecorder delegate;
         private boolean armed = true;
@@ -263,7 +226,6 @@ public class LogEventTest {
         return log;
     }
 
-    /** Runs {@code work} to completion on a fresh thread with the given name. */
     private static void onThreadNamed(String name, Runnable work) throws Exception {
         var failure = new AtomicReference<Throwable>();
 
@@ -363,13 +325,6 @@ public class LogEventTest {
                 recovery.getTimestamp() >= before && recovery.getTimestamp() <= after);
     }
 
-    // ---------------------------------------------------------------------
-    // What a formatter can build out of an event.
-    //
-    // The event is what makes a rich line possible without the library
-    // deciding on a layout: everything a formatter needs is on it.
-    // ---------------------------------------------------------------------
-
     @Test
     public void aFormatterCanRenderEveryPartOfTheEvent() {
         var seen = new AtomicReference<LogEvent>();
@@ -405,7 +360,6 @@ public class LogEventTest {
 
     private static final AtomicInteger LOGGER_SEQ = new AtomicInteger();
 
-    /** Each test gets its own logger name, so the registry never crosses tests. */
     private static String nextLoggerName() {
         return "test.%s".formatted(LOGGER_SEQ.incrementAndGet());
     }

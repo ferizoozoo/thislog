@@ -10,12 +10,6 @@ import io.github.ferizoozoo.thislog.PatternFormatter;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
-/**
- * Prints one of everything so the rendering can be eyeballed.
- *
- * <p>Run with {@code ./gradlew runDemo --console=plain}. The colour sections
- * only look right on a terminal that understands ANSI escapes.
- */
 public final class Demo {
 
     public static void main(String[] args) throws Exception {
@@ -29,19 +23,12 @@ public final class Demo {
         oneNameIsOneLogger();
     }
 
-    /** Environment defaults with this formatter on the console. */
     private static LogOptions using(LogFormatter formatter) {
         return LogOptions.createFromEnvironment()
                 .withFormatter(formatter)
                 .withDestination(LogDestination.STDOUT);
     }
 
-    /**
-     * The constructor applies the options it is handed, so asking the factory
-     * for a name it has not seen is all the configuration a logger needs.
-     * Applying them a second time with changeOptions would only reopen the
-     * same destination.
-     */
     private static Loggable configured(String name, LogOptions options) {
         return LoggingFactory.get(name, options);
     }
@@ -82,8 +69,6 @@ public final class Demo {
 
     private static void aLambdaIsStillThereForWhatAPatternCannotSay() {
         heading("4. A LogFormatter is still a function, for layouts no pattern covers");
-        // Nothing in the pattern language renders a throwable inline, so this is
-        // the shape to reach for when a layout needs something of its own.
         LogFormatter withCause = event -> event.getMessage()
                 + (event.getThrown() == null ? "" : " (" + event.getThrown().getMessage() + ")");
 
@@ -128,18 +113,13 @@ public final class Demo {
     private static void oneNameIsOneLogger() {
         heading("8. A name resolves to one logger, wherever it is asked for");
 
-        // A name this demo has not touched, so nothing is configured yet.
         var early = LoggingFactory.get("com.acme.orders.OrderRouter",
                 LogOptions.createFromEnvironment());
 
-        // Somewhere else entirely, the same name is reconfigured. The factory
-        // only applies options when it builds a logger, so reaching one that
-        // already exists means changing the options on the instance.
         var coloured = LogFormatter.colored(PatternFormatter.create("[orders] %s"));
         LoggingFactory.get("com.acme.orders.OrderRouter", LogOptions.createFromEnvironment())
                 .changeOptions(using(coloured));
 
-        // The handle taken before that already has the new configuration.
         early.info(() -> "configured from somewhere else");
         System.out.println("   same instance: "
                 + (early == LoggingFactory.get("com.acme.orders.OrderRouter",

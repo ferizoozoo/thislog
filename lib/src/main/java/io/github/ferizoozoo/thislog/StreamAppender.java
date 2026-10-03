@@ -46,8 +46,6 @@ public class StreamAppender implements Appender {
 
     @Override
     public void flush() {
-        // A PrintStream swallows its IOExceptions, so its error flag is the only
-        // place a failed write shows up; checkError flushes on the way.
         if (this.outputStream instanceof PrintStream printStream) {
             if (printStream.checkError()) {
                 this.hasFailed = true;
@@ -100,8 +98,6 @@ public class StreamAppender implements Appender {
             line = LogLevel.coloredMessage("Failed to format log message: " + failure, LogLevel.ERROR);
         }
         writeLine(line);
-        // The caller only flushes for severe levels, but a dropped line is worth
-        // seeing whatever level provoked it.
         this.flush();
     }
 }

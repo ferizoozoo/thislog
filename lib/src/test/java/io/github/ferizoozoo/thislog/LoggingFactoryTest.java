@@ -22,11 +22,6 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
-/**
- * The registry is what separates a factory from a constructor: the same name
- * has to come back as the same logger, or configuring one part of an
- * application silently leaves another part on the old settings.
- */
 public class LoggingFactoryTest {
 
     private final PrintStream realStdout = System.out;
@@ -107,8 +102,6 @@ public class LoggingFactoryTest {
 
     @Test
     public void equivalentOptionsBuiltSeparatelyCountAsTheSame() {
-        // Otherwise every second get() of a name warns about options that
-        // differ only by being a second object.
         assertEquals(LogOptions.createFromEnvironment(), LogOptions.createFromEnvironment());
         assertEquals(LogOptions.createFromEnvironment().hashCode(),
                 LogOptions.createFromEnvironment().hashCode());
@@ -286,16 +279,10 @@ public class LoggingFactoryTest {
                 "no formatter was ever set" + System.lineSeparator(), written.toString());
     }
 
-    /** Options good enough to build a logger with; nothing is applied by them. */
     private static LogOptions plain() {
         return LogOptions.createFromEnvironment();
     }
 
-    /**
-     * A registered logger with its options actually applied. The factory
-     * only builds a logger the first time a name is asked for, so changeOptions
-     * is what configures one that may already exist.
-     */
     private static Loggable registered(String name, LogFormatter formatter) {
         var log = LoggingFactory.get(name, plain());
         log.changeOptions(LogOptions.createFromEnvironment()
@@ -304,7 +291,6 @@ public class LoggingFactoryTest {
         return log;
     }
 
-    /** Keeps the events that reached formatting. */
     private static final class EventRecorder implements LogFormatter {
         private final List<LogEvent> events = new ArrayList<>();
 
@@ -315,7 +301,6 @@ public class LoggingFactoryTest {
         }
     }
 
-    /** Keeps the messages that reached formatting. */
     private static final class Recorder implements LogFormatter {
         private final List<String> messages = new ArrayList<>();
 

@@ -15,12 +15,6 @@ import static org.junit.Assert.assertTrue;
 import org.junit.Before;
 import org.junit.Test;
 
-/**
- * What a logger does with the appenders handed to addAppender.
- *
- * <p>The options describe one appender. Every other one is added by hand, has
- * its own formatter, and is the logger's to flush and close from then on.
- */
 public class LoggingAppendersTest {
 
     private static final String NL = System.lineSeparator();
@@ -70,7 +64,6 @@ public class LoggingAppendersTest {
         return sink.toString(StandardCharsets.UTF_8);
     }
 
-    /** An appender that only remembers what it was asked to do. */
     private static final class Recorder implements Appender {
         final List<String> messages = new ArrayList<>();
         int flushes;
@@ -97,7 +90,6 @@ public class LoggingAppendersTest {
         }
     }
 
-    /** An appender whose every method throws. */
     private static final class Broken implements Appender {
         @Override
         public void append(LogEvent event) {

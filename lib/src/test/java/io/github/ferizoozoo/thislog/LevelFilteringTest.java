@@ -21,21 +21,7 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 
-/**
- * Level threshold filtering: which messages reach the destination.
- *
- * <p>One rule: a message is written when the severity of the method that was
- * called is at or above the logger's current level, and dropped otherwise. The
- * threshold starts at {@link LogOptions#DEFAULT_LEVEL}, so TRACE and DEBUG are
- * filtered until a caller lowers it, and it governs every level rather than a
- * privileged subset of them.
- *
- * <p>Dropping happens before formatting, so raising the threshold buys back
- * the cost of building the line as well as the cost of writing it.
- */
 public class LevelFilteringTest {
-
-    /** Every level a caller can log at, in ascending severity. */
     private static final List<LogLevel> LEVELS = List.of(
             LogLevel.TRACE, LogLevel.DEBUG, LogLevel.INFO,
             LogLevel.WARN, LogLevel.ERROR, LogLevel.FATAL);
@@ -43,7 +29,6 @@ public class LevelFilteringTest {
     @Rule
     public TemporaryFolder tempFolder = new TemporaryFolder();
 
-    /** Records what got as far as formatting, so suppression is visible. */
     private static final class Recorder implements LogFormatter {
         private final List<LogLevel> levels = new ArrayList<>();
 
@@ -64,15 +49,10 @@ public class LevelFilteringTest {
         }
     }
 
-    /** Runs {@code action} against a logger writing to a temp file. */
     private Run run(Consumer<Loggable> action) throws Exception {
         return runAt(null, action);
     }
 
-    /**
-     * As {@link #run}, with {@code threshold} set on the options rather than on
-     * the logger. A null threshold leaves the default in place.
-     */
     private Run runAt(LogLevel threshold, Consumer<Loggable> action) throws Exception {
         File sink = tempFolder.newFile();
         var recorder = new Recorder();
@@ -89,7 +69,6 @@ public class LevelFilteringTest {
             Files.readString(sink.toPath(), StandardCharsets.UTF_8).lines().toList());
     }
 
-    /** Logs one message at every level, in ascending severity. */
     private static void logEveryLevel(Loggable log) {
         log.trace(() -> "trace message");
         log.debug(() -> "debug message");
@@ -99,7 +78,6 @@ public class LevelFilteringTest {
         log.fatal(() -> "fatal message");
     }
 
-    /** Calls the method matching {@code level}. */
     private static void logAt(Loggable log, LogLevel level, String message) {
         switch (level) {
             case TRACE -> log.trace(() -> message);
@@ -111,17 +89,12 @@ public class LevelFilteringTest {
         }
     }
 
-    /** The levels a correct threshold lets through: those at or above it. */
     private static List<String> atOrAbove(LogLevel threshold) {
         return LEVELS.stream()
                 .filter(level -> level.severity() >= threshold.severity())
                 .map(LogLevel::name)
                 .toList();
     }
-
-    // ---------------------------------------------------------------------
-    // The default threshold, and where a logger gets it from.
-    // ---------------------------------------------------------------------
 
     @Test
     public void theDefaultThresholdIsInfo() {
@@ -165,14 +138,6 @@ public class LevelFilteringTest {
         assertEquals("withLevel must reach the logger, not just the options",
             atOrAbove(LogLevel.TRACE), run.levelsWritten());
     }
-
-    // ---------------------------------------------------------------------
-    // The threshold governs every level, not just the verbose ones.
-    //
-    // This is the whole of the rule, stated once: for each threshold in turn,
-    // exactly the levels at or above it are written. The cases that follow
-    // spell out the corners it covers, so a failure names itself.
-    // ---------------------------------------------------------------------
 
     @Test
     public void aThresholdWritesExactlyTheLevelsAtOrAboveIt() throws Exception {
@@ -229,10 +194,6 @@ public class LevelFilteringTest {
             List.of("FATAL"), run.levelsWritten());
     }
 
-    // ---------------------------------------------------------------------
-    // The boundary itself.
-    // ---------------------------------------------------------------------
-
     @Test
     public void aLevelExactlyAtTheThresholdIsWritten() throws Exception {
         Run run = run(log -> {
@@ -263,10 +224,6 @@ public class LevelFilteringTest {
 
         assertEquals(List.of("ERROR"), run.levelsWritten());
     }
-
-    // ---------------------------------------------------------------------
-    // Dropping happens before formatting.
-    // ---------------------------------------------------------------------
 
     @Test
     public void aSuppressedMessageIsNeverEvenFormatted() throws Exception {
@@ -304,10 +261,6 @@ public class LevelFilteringTest {
         assertEquals("nothing is formatted and then dropped, or written unformatted",
             run.levelsFormatted(), run.levelsWritten());
     }
-
-    // ---------------------------------------------------------------------
-    // Moving the threshold.
-    // ---------------------------------------------------------------------
 
     @Test
     public void loweringTheThresholdLetsVerboseLevelsThrough() throws Exception {
@@ -352,10 +305,6 @@ public class LevelFilteringTest {
 
         assertEquals(List.of("INFO"), run.levelsWritten());
     }
-
-    // ---------------------------------------------------------------------
-    // The threshold must stay put while logging.
-    // ---------------------------------------------------------------------
 
     @Test
     public void everyLevelAtOrAboveTheThresholdIsWrittenRegardlessOfOrder() throws Exception {
@@ -427,10 +376,6 @@ public class LevelFilteringTest {
         assertEquals(List.of(LogLevel.INFO), loudRecorder.levels);
     }
 
-    // ---------------------------------------------------------------------
-    // The ordering the threshold relies on.
-    // ---------------------------------------------------------------------
-
     @Test
     public void severityRunsFromMostVerboseToMostSevere() {
         assertTrue(LogLevel.TRACE.severity() < LogLevel.DEBUG.severity());
@@ -459,17 +404,6 @@ public class LevelFilteringTest {
         }
     }
 
-    // ---------------------------------------------------------------------
-    // What a suppressed call costs.
-    //
-    // The threshold is consulted before an event is built and before the
-    // monitor is taken, and the flush now lives inside the synchronized
-    // write. So a filtered message should not reach the destination in any
-    // form -- not even as the flush that used to run from a finally block on
-    // every call, suppressed or not.
-    // ---------------------------------------------------------------------
-
-    /** Counts the flushes the logger asks for, which a suppressed call must not. */
     private static final class CountingStream extends PrintStream {
         private final AtomicInteger flushes = new AtomicInteger();
 
@@ -496,7 +430,6 @@ public class LevelFilteringTest {
         System.setOut(realStdout);
     }
 
-    /** A logger on a counting stdout. The stream must be in place first. */
     private static Loggable loggerOn(CountingStream stream, Recorder recorder) {
         System.setOut(stream);
         var log = Logging.create(nextLoggerName(), LogOptions.createFromEnvironment());
@@ -539,9 +472,6 @@ public class LevelFilteringTest {
         var recorder = new Recorder();
         var log = loggerOn(new CountingStream(), recorder);
 
-        // Thread.join supplies the ordering here, so this pins the behaviour
-        // rather than the memory model: a threshold set on one thread governs
-        // what another thread may write.
         var configurer = new Thread(() -> log.setCurrentLogLevel(LogLevel.ERROR), "configurer");
         configurer.start();
         configurer.join(5_000);
@@ -551,10 +481,6 @@ public class LevelFilteringTest {
 
         assertEquals(List.of(), recorder.levels);
     }
-
-    // ---------------------------------------------------------------------
-    // Parsing a level out of configuration.
-    // ---------------------------------------------------------------------
 
     @Test
     public void everyLevelNameParses() {
@@ -594,10 +520,6 @@ public class LevelFilteringTest {
             rejected.getMessage().contains("verbose"));
     }
 
-    // ---------------------------------------------------------------------
-    // A level cannot go missing on the way to the logger.
-    // ---------------------------------------------------------------------
-
     @Test
     public void aNullLevelIsRejectedWhenTheOptionsAreBuilt() {
         assertThrows(NullPointerException.class,
@@ -618,7 +540,6 @@ public class LevelFilteringTest {
 
     private static final AtomicInteger LOGGER_SEQ = new AtomicInteger();
 
-    /** Each test gets its own logger name, so the registry never crosses tests. */
     private static String nextLoggerName() {
         return "test.%s".formatted(LOGGER_SEQ.incrementAndGet());
     }

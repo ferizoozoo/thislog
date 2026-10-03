@@ -18,7 +18,6 @@ final class Appenders {
                 StreamAppender.wrapping(System.err, formatter);
             case LogDestination.LogFile logFile -> {
                 var appender = FileAppender.create(logFile.path(), formatter);
-                // A buffered file is the only reason to run a flush timer.
                 Flusher.destinationOpened(logFile);
                 yield appender;
             }

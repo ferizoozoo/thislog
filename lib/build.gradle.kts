@@ -1,20 +1,16 @@
 plugins {
-    // Apply the java-library plugin for API and implementation separation.
     `java-library`
     `maven-publish`
 }
 
 repositories {
-    // Use Maven Central for resolving dependencies.
     mavenCentral()
 }
 
 dependencies {
-    // Use JUnit test framework.
     testImplementation(libs.junit)
 }
 
-// The Gradle project is called "lib"; the artifact people depend on is "thislog".
 base {
     archivesName = "thislog"
 }
@@ -22,8 +18,6 @@ base {
 tasks.withType<Test>().configureEach {
     testLogging {
         events("passed", "skipped", "failed")
-        // Print the full assertion message and stack trace, so a failed
-        // assertEquals shows both the expected and the actual value.
         exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
         showExceptions = true
         showCauses = true
@@ -31,12 +25,10 @@ tasks.withType<Test>().configureEach {
     }
 }
 
-// Apply a specific Java toolchain to ease working on different environments.
 java {
     toolchain {
         languageVersion = JavaLanguageVersion.of(21)
     }
-    // Consumers get sources and javadoc alongside the jar.
     withSourcesJar()
     withJavadocJar()
 }
@@ -48,8 +40,6 @@ tasks.withType<JavaCompile>().configureEach {
 
 tasks.withType<Javadoc>().configureEach {
     options.encoding = "UTF-8"
-    // Keep doclint's real errors (bad references, malformed HTML) but do not
-    // fail the build over undocumented members while the API is still moving.
     (options as StandardJavadocDocletOptions).addStringOption("Xdoclint:all,-missing", "-quiet")
 }
 
@@ -98,8 +88,6 @@ publishing {
     }
 
     repositories {
-        // Publishing target for CI. Credentials come from the environment, so
-        // `publishToMavenLocal` keeps working locally without any setup.
         maven {
             name = "GitHubPackages"
             url = uri("https://maven.pkg.github.com/ferizoozoo/thislog")

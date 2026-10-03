@@ -18,27 +18,10 @@ import static org.junit.Assert.assertNotEquals;
 import org.junit.Before;
 import org.junit.Test;
 
-/**
- * What the logger carries alongside the message.
- *
- * <p>The thread name is the one piece of context the logger renders today, and
- * it is now read off the running thread at the moment of the call: each level
- * method builds a {@link LogEvent}, and {@code LogEvent.create} stamps
- * {@code Thread.currentThread().getName()} on it. A caller cannot supply one,
- * because the constructor is private.
- *
- * <p>So two rules govern it. It names the thread that made the call, not the
- * one that built the logger; and it is still there on the hundredth message,
- * because logging reads the thread rather than consuming anything.
- *
- * <p>{@link ContextTest} covers {@link Context} on its own. {@link LogEventTest}
- * covers the event. This covers what the logger puts on it.
- */
 public class LoggingContextTest {
 
     private static final long TIMEOUT_MS = 5_000;
 
-    /** Shared across threads by several tests, so the list must be too. */
     private static final class Recorder implements LogFormatter {
         private final List<LogEvent> events = Collections.synchronizedList(new ArrayList<>());
 
@@ -65,7 +48,6 @@ public class LoggingContextTest {
         }
     }
 
-    /** Throws on its first call only, so the recovery path runs mid-sequence. */
     private static final class FailsOnce implements LogFormatter {
         private final Recorder delegate = new Recorder();
         private boolean armed = true;
@@ -79,11 +61,6 @@ public class LoggingContextTest {
             return delegate.format(event);
         }
     }
-
-    // ---------------------------------------------------------------------
-    // Logging goes to stdout unless told otherwise; keep it out of the build
-    // output, since these tests read the formatter rather than the sink.
-    // ---------------------------------------------------------------------
 
     private final PrintStream realStdout = System.out;
 
@@ -107,7 +84,6 @@ public class LoggingContextTest {
         return log;
     }
 
-    /** Runs {@code work} to completion on a fresh thread with the given name. */
     private static void onThreadNamed(String name, Runnable work) throws Exception {
         var failure = new AtomicReference<Throwable>();
 
@@ -131,10 +107,6 @@ public class LoggingContextTest {
     private static String thisThread() {
         return Thread.currentThread().getName();
     }
-
-    // ---------------------------------------------------------------------
-    // The thread name outlives the first message.
-    // ---------------------------------------------------------------------
 
     @Test
     public void theFirstMessageCarriesTheThreadName() {
@@ -223,10 +195,6 @@ public class LoggingContextTest {
 
         assertEquals(List.of(thisThread(), thisThread()), recorder.threadNames());
     }
-
-    // ---------------------------------------------------------------------
-    // The thread name is the caller's, not the builder's.
-    // ---------------------------------------------------------------------
 
     @Test
     public void theThreadNameIsTheCallersRatherThanTheOneThatBuiltTheLogger() throws Exception {
@@ -345,7 +313,6 @@ public class LoggingContextTest {
 
     private static final AtomicInteger LOGGER_SEQ = new AtomicInteger();
 
-    /** Each test gets its own logger name, so the registry never crosses tests. */
     private static String nextLoggerName() {
         return "test.%s".formatted(LOGGER_SEQ.incrementAndGet());
     }

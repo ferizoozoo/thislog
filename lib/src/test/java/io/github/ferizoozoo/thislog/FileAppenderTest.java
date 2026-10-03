@@ -12,13 +12,6 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 
-/**
- * What a FileAppender does with the file it shares.
- *
- * <p>Every appender on one path writes through the same stream, and the file
- * is only closed when the last of them lets go. So what one appender does
- * after it is closed matters to the others still holding the file.
- */
 public class FileAppenderTest {
 
     private static final String NL = System.lineSeparator();
@@ -30,7 +23,6 @@ public class FileAppenderTest {
 
     @After
     public void closeWhatWasOpened() {
-        // An open handle would stop the temporary folder from being deleted.
         for (var appender : opened) {
             appender.close();
         }

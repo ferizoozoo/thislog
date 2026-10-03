@@ -1,7 +1,5 @@
 package io.github.ferizoozoo.thislog;
 
-// Files are shared and reference-counted by FileStreams, so closing this
-// appender lets go of its hold instead of closing the file outright.
 public class FileAppender implements Appender {
     private final String path;
     private final Appender delegate;

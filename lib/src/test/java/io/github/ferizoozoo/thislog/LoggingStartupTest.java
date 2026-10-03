@@ -17,15 +17,6 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 
-/**
- * What a logger does when the configuration it is handed cannot be applied, and
- * when the destination it did open stops accepting writes.
- *
- * <p>Configuration reaches a logger through its constructor and through
- * changeOptions. The one failure those paths can still hit is a
- * destination that will not open; a PrintStream hides the rest behind a flag,
- * so neither is reachable from the other suites.
- */
 public class LoggingStartupTest {
 
     private static final String NL = System.lineSeparator();
@@ -64,7 +55,6 @@ public class LoggingStartupTest {
         return stderr.toString(StandardCharsets.UTF_8);
     }
 
-    /** A logger with the options applied. */
     private static Logging configured(String name, LogOptions options) {
         var log = Logging.create(name, LogOptions.createFromEnvironment());
         log.changeOptions(options);
@@ -76,10 +66,6 @@ public class LoggingStartupTest {
                 .withDestination(destination)
                 .withFormatter(PatternFormatter.create(PatternFormatter.DEFAULT_PATTERN));
     }
-
-    // ---------------------------------------------------------------------
-    // Configuration that cannot be applied.
-    // ---------------------------------------------------------------------
 
     @Test
     public void aConfigurationThatCannotBeAppliedStillLeavesAUsableLogger() throws Exception {
@@ -190,21 +176,12 @@ public class LoggingStartupTest {
         assertEquals("to the file" + NL, Files.readString(sink.toPath(), StandardCharsets.UTF_8));
     }
 
-    // ---------------------------------------------------------------------
-    // Ownership of a file the constructor opened.
-    //
-    // A logger that does not know it owns its file abandons the stream on the
-    // way out instead of closing it, and closing is what flushes whatever is
-    // still buffered. So the buffered line is the evidence.
-    // ---------------------------------------------------------------------
-
     @Test
     public void anOwnedFileIsClosedWhenTheLoggerIsClosed() throws Exception {
         var sink = tempFolder.newFile();
         var log = configured("com.acme.Boot",
                 plainlyTo(LogDestination.file(sink.getAbsolutePath())));
 
-        // INFO is below FLUSH_THRESHOLD, so this only reaches the buffer.
         log.info(() -> "buffered");
         log.close();
 
@@ -259,11 +236,6 @@ public class LoggingStartupTest {
                 "back in service" + NL, stdoutText());
     }
 
-    // ---------------------------------------------------------------------
-    // A destination that stops accepting writes.
-    // ---------------------------------------------------------------------
-
-    /** Fails every write the way a full disk does, silently, as PrintStream will. */
     private static PrintStream refusingStream() {
         return new PrintStream(new OutputStream() {
             @Override
@@ -320,8 +292,6 @@ public class LoggingStartupTest {
         log.error(() -> "lost");
         assertTrue(stderrText().contains("log output may be lost"));
 
-        // A new destination has not failed yet, so a later failure on it must
-        // be reported again rather than swallowed by the earlier verdict.
         System.setOut(new PrintStream(stdout, true, StandardCharsets.UTF_8));
         log.changeOptions(plainlyTo(LogDestination.STDOUT));
         log.error(() -> "lands");
@@ -342,14 +312,8 @@ public class LoggingStartupTest {
                 stderrText().contains("log output may be lost"));
     }
 
-    // ---------------------------------------------------------------------
-    // What a logger does before anything is configured on it.
-    // ---------------------------------------------------------------------
-
     @Test
     public void anUnconfiguredLoggerWritesWithTheEnvironmentDefaults() {
-        // createFromEnvironment resolves the environment, so the defaults are
-        // what a logger starts on.
         var log = Logging.create("com.acme.Boot", LogOptions.createFromEnvironment());
 
         log.info(() -> "plain by default");
@@ -358,21 +322,8 @@ public class LoggingStartupTest {
         assertEquals("the default configuration is not a failure", "", stderrText());
     }
 
-    // ---------------------------------------------------------------------
-    // Replacing the stream a logger writes to.
-    //
-    // Reconfiguration has to release the stream it leaves behind, or a file
-    // handle leaks with unwritten lines still in its buffer. The care is in
-    // which stream that is: a file belongs to the logger, but System.out
-    // belongs to the JVM, and closing one takes the whole process's output
-    // with it. Both directions are pinned down here because both have been
-    // wrong.
-    // ---------------------------------------------------------------------
-
     @Test
     public void aFileHandedToTheConstructorIsTheFileThatGetsWrittenTo() throws Exception {
-        // Not via changeOptions: the constructor is its own path into
-        // setupPrinter, and it runs with no previous stream to release.
         var sink = tempFolder.newFile();
         var log = Logging.create("com.acme.Boot", plainlyTo(LogDestination.file(sink.getAbsolutePath())));
 
@@ -392,9 +343,6 @@ public class LoggingStartupTest {
         var second = tempFolder.newFile();
         var log = Logging.create("com.acme.Boot", plainlyTo(LogDestination.file(first.getAbsolutePath())));
 
-        // INFO sits below the flush threshold, so this line is still in the
-        // buffer when the destination is replaced. It reaches the file only if
-        // the stream being left behind is flushed and closed.
         log.info(() -> "written before the move");
         log.changeOptions(plainlyTo(LogDestination.file(second.getAbsolutePath())));
 
@@ -410,8 +358,6 @@ public class LoggingStartupTest {
 
         log.changeOptions(plainlyTo(LogDestination.STDERR));
 
-        // System.out is not the logger's to close. If it were closed here, every
-        // later write in the process would fail silently, not just this one.
         System.out.print("still open");
         assertFalse("closing System.out would take the whole process's output down",
                 System.out.checkError());
@@ -425,9 +371,6 @@ public class LoggingStartupTest {
         var directory = tempFolder.newFolder();
         var log = Logging.create("com.acme.Boot", plainlyTo(LogDestination.file(sink.getAbsolutePath())));
 
-        // A directory cannot be opened as a file, so this reconfigure fails
-        // after the logger is already running. The replacement is opened before
-        // the current stream is released, so a failure costs nothing.
         log.changeOptions(plainlyTo(LogDestination.file(directory.getAbsolutePath())));
         log.info(() -> "still going to the original file");
         log.close();
@@ -447,8 +390,6 @@ public class LoggingStartupTest {
             var log = LoggingFactory.get("com.acme.Quiet",
                     plainlyTo(LogDestination.file(sink.getAbsolutePath())));
 
-            // INFO sits below the flush threshold, and nothing here closes the
-            // logger or reconfigures it. Only the timer can move this line.
             log.info(() -> "written, then left alone");
 
             var deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(10);
