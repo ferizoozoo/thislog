@@ -21,18 +21,21 @@ public class Logging implements Loggable {
     private Logging(String name, LogOptions options) {
         this.name = Objects.requireNonNull(name, "name");
         Objects.requireNonNull(options, "options");
-        Appender opened;
+
+        var applied = options;
+        Appender appender;
         try {
-            opened = openAppenderFor(options);
+            appender = openAppender(applied);
         } catch (RuntimeException e) {
             System.err.println("thislog: cannot apply the logging configuration for '" + name + "' ("
                     + e + "); falling back to stdout");
-            options = options.withDestination(LogDestination.STDOUT);
-            opened = openAppenderFor(options);
+            applied = options.withDestination(LogDestination.STDOUT);
+            appender = openAppender(applied);
         }
-        this.options = options;
-        this.currentLevel = options.getLevel();
-        this.appenders = List.of(opened);
+
+        this.options = applied;
+        this.currentLevel = applied.getLevel();
+        this.appenders = List.of(appender);
     }
 
     public static Logging create(String name, LogOptions options) {
@@ -41,36 +44,38 @@ public class Logging implements Loggable {
         return logger;
     }
 
-    private static Appender appenderFromOptions(LogOptions options) {
-        return Appenders.logDestinationToAppender(options.getDestination(), options.getFormatter());
-    }
-
-    private static Appender openAppenderFor(LogOptions options) {
-        var appender = appenderFromOptions(options);
-        Flusher.destinationOpened(options.getDestination());
-        return appender;
+    private static Appender openAppender(LogOptions options) {
+        var given = options.getAppender();
+        if (given == null) {
+            return Appenders.forDestination(options.getDestination(), options.getFormatter());
+        }
+        Flusher.appenderAdded();
+        return given;
     }
 
     @Override
     public synchronized void changeOptions(LogOptions options) {
         Objects.requireNonNull(options, "options");
         Appender replacement;
+
         try {
-            replacement = openAppenderFor(options);
+            replacement = openAppender(options);
         } catch (RuntimeException e) {
             System.err.println("thislog: cannot apply the logging configuration for '" + this.name + "' ("
                     + e + "); keeping the previous configuration");
             return;
         }
-        // The options describe the first appender only; the ones handed to
-        // addAppender are not theirs to replace.
+
         var updated = new ArrayList<>(this.appenders);
         var previous = updated.set(0, replacement);
         this.appenders = List.copyOf(updated);
-        guarded(previous, Appender::close);
+        if (previous != replacement) {
+            guarded(previous, Appender::close);
+        }
         this.options = options;
         this.currentLevel = options.getLevel();
         this.closed = false;
+        this.appenderFailureReported = false;
     }
 
     @Override
@@ -85,8 +90,6 @@ public class Logging implements Loggable {
         var updated = new ArrayList<>(this.appenders);
         updated.add(appender);
         this.appenders = List.copyOf(updated);
-        // Whether an appender buffers is its own business, so every added one
-        // gets the flush timer and the flush on exit.
         Flusher.appenderAdded();
     }
 
@@ -173,8 +176,6 @@ public class Logging implements Loggable {
         }
     }
 
-    // An appender can be anyone's code now, and one that throws must neither
-    // escape a logging call nor cost the other appenders their turn.
     private void guarded(Appender appender, Consumer<Appender> action) {
         try {
             action.accept(appender);

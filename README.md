@@ -5,12 +5,13 @@ A small, dependency-free logging library for the JVM.
 `thislog` is built around four pieces: a **logger** you take by name, a **level**
 that decides what survives, a **formatter** that turns an event into a line, and
 a **destination** that line is written to. Nothing else is required, and there is
-nothing to configure before the first call works.
+nothing to configure before the first call works. When one destination is not
+enough, **appenders** add more — see [More than one destination](#more-than-one-destination).
 
 > **Status: early.** The core (levels, named loggers, deferred messages, the
-> pattern language, console and file destinations, full stack traces, one
-> shared writer per file, and a flush on exit) is implemented and covered by
-> tests. The pieces a mature logging library is expected to have —
+> pattern language, console and file destinations, appenders, full stack
+> traces, one shared writer per file, and a flush on exit) is implemented and
+> covered by tests. The pieces a mature logging library is expected to have —
 > parameterized `{}` messages, rolling files, MDC, an SLF4J binding — are not
 > there yet. See [Roadmap](#roadmap).
 
@@ -250,10 +251,49 @@ the destination they describe. `StreamAppender.create` closes the stream it is
 given when the logger closes; `StreamAppender.wrapping` leaves it open, which
 is the one to use for a stream you do not own.
 
+An appender can also stand in for the destination itself, by putting it in the
+options:
+
+```java
+var log = LoggingFactory.get(OrderRouter.class, LogOptions.createFromEnvironment()
+        .withAppender(FileAppender.create("orders.log", PatternFormatter.create("%date %m"))));
+```
+
+An appender in the options takes the place of the destination and formatter
+beside it, which are then not opened or used. It belongs to the logger the same
+way an added one does: a `changeOptions(...)` that carries the same appender
+forward keeps it, and one that moves off it closes it.
+
+### Writing your own
+
 `Appender` is an interface, so a destination this library does not ship is a
-class of your own. One that throws is reported on stderr once and does not
-cost the other appenders their line. A closed logger refuses a new appender
-with `IllegalStateException`.
+class of your own:
+
+```java
+final class ListAppender implements Appender {
+    final List<String> lines = new ArrayList<>();
+
+    @Override public void append(LogEvent event) { lines.add(event.getMessage()); }
+    @Override public void flush() {}
+    @Override public void close() {}
+    @Override public boolean checkFailure() { return false; }
+}
+```
+
+Three things to know before writing one:
+
+- **No locking is needed.** A logger calls its appenders under its own lock, so
+  an appender used by one logger is only ever called by one thread at a time.
+  Do not hand the same instance to two loggers.
+- **`checkFailure()` answers once.** It should return `true` the first time it
+  is asked after a write or flush failed, and `false` after that. The logger
+  prints a notice on stderr every time it gets `true`, so an appender that keeps
+  answering `true` repeats that notice on every `ERROR` line.
+- **Throwing is survivable, not free.** An appender that throws is reported on
+  stderr once per configuration and does not cost the call site or the other
+  appenders their line — but the line it threw on is lost to it.
+
+A closed logger refuses a new appender with `IllegalStateException`.
 
 ## Configuration from the environment
 

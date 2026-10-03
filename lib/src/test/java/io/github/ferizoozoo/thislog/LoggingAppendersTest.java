@@ -184,6 +184,53 @@ public class LoggingAppendersTest {
     }
 
     @Test
+    public void anAppenderInTheOptionsTakesThePlaceOfTheDestination() {
+        var given = new Recorder();
+        var log = Logging.create("com.acme.Boot", plainlyTo(LogDestination.STDOUT).withAppender(given));
+
+        log.info("to the given appender");
+
+        assertEquals(List.of("to the given appender"), given.messages);
+        assertEquals("the destination beside it is not opened", "", stdoutText());
+    }
+
+    @Test
+    public void optionsWithoutAnAppenderStillOpenTheirDestination() {
+        var log = Logging.create("com.acme.Boot", LogOptions.createFromEnvironment()
+                .withFormatter(PatternFormatter.create(PatternFormatter.DEFAULT_PATTERN)));
+
+        log.info("to stdout");
+
+        assertEquals("to stdout" + NL, stdoutText());
+    }
+
+    @Test
+    public void carryingTheSameAppenderForwardDoesNotCloseIt() {
+        var given = new Recorder();
+        var options = plainlyTo(LogDestination.STDOUT).withAppender(given);
+        var log = Logging.create("com.acme.Boot", options);
+
+        log.changeOptions(options.withLevel(LogLevel.DEBUG));
+        log.debug("still writing");
+
+        assertEquals(0, given.closes);
+        assertEquals(List.of("still writing"), given.messages);
+    }
+
+    @Test
+    public void movingOffAGivenAppenderClosesIt() {
+        var given = new Recorder();
+        var log = Logging.create("com.acme.Boot", plainlyTo(LogDestination.STDOUT).withAppender(given));
+
+        log.changeOptions(plainlyTo(LogDestination.STDOUT));
+        log.info("back on stdout");
+
+        assertEquals("the logger owns what the options handed it", 1, given.closes);
+        assertEquals(List.of(), given.messages);
+        assertEquals("back on stdout" + NL, stdoutText());
+    }
+
+    @Test
     public void flushingTheLoggerFlushesEveryAppender() {
         var log = onStdout();
         var added = new Recorder();
@@ -251,6 +298,19 @@ public class LoggingAppendersTest {
         assertEquals("got: " + stderrText(), 1, notices);
         assertTrue("the reason should be in the notice, got: " + stderrText(),
                 stderrText().contains("append is broken"));
+    }
+
+    @Test
+    public void aThrowingAppenderIsReportedAgainAfterAReconfiguration() {
+        var log = onStdout();
+        log.addAppender(new Broken());
+        log.info("first");
+
+        log.changeOptions(plainlyTo(LogDestination.STDOUT));
+        log.info("second");
+
+        assertEquals("one notice per configuration",
+                2, stderrText().split("threw", -1).length - 1);
     }
 
     @Test
