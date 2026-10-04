@@ -251,6 +251,23 @@ the destination they describe. `StreamAppender.create` closes the stream it is
 given when the logger closes; `StreamAppender.wrapping` leaves it open, which
 is the one to use for a stream you do not own.
 
+Each appender also has a level of its own, `TRACE` until you move it. A line
+reaches an appender only when it gets past both the logger's level and the
+appender's, so a file can keep the detail the console leaves out:
+
+```java
+log.setCurrentLogLevel(LogLevel.DEBUG);
+
+var console = StreamAppender.wrapping(System.out, PatternFormatter.create("%m"));
+console.setLogLevel(LogLevel.INFO);
+log.addAppender(console);
+log.addAppender(FileAppender.create("debug.log", PatternFormatter.create("%date %level %m")));
+```
+
+The logger's level is checked first, so an appender's level can only narrow
+what it receives, never widen it. It can be moved at any time, on an appender
+already in use.
+
 An appender can also stand in for the destination itself, by putting it in the
 options:
 
@@ -277,6 +294,8 @@ final class ListAppender implements Appender {
     @Override public void flush() {}
     @Override public void close() {}
     @Override public boolean checkFailure() { return false; }
+    @Override public LogLevel getLogLevel() { return LogLevel.TRACE; }
+    @Override public void setLogLevel(LogLevel level) {}
 }
 ```
 
@@ -293,7 +312,14 @@ Three things to know before writing one:
   stderr once per configuration and does not cost the call site or the other
   appenders their line — but the line it threw on is lost to it.
 
-A closed logger refuses a new appender with `IllegalStateException`.
+`removeAppender` takes an added appender off again. The logger flushes it and
+closes it on the way out, so it is not used again after that. Removing an
+appender the logger does not have does nothing. The appender from the options
+cannot be removed — it is replaced through `changeOptions(...)` instead — and
+asking to remove it throws `IllegalArgumentException`.
+
+A closed logger refuses a new appender, and a removal, with
+`IllegalStateException`.
 
 ## Configuration from the environment
 
@@ -338,19 +364,15 @@ Roughly in the order it makes sense to build:
    forms are both in; what is left is the `{}` substitution.
 2. **More of the pattern language** — column widths (`%-5level`), a date format
    per pattern (`%date{HH:mm:ss}`), `%F`/`%L` for the call site.
-3. **Appenders** — one logger writing to many destinations, each with its own
-   formatter, level, and filters. Several appenders on a logger, each with its
-   own formatter, are in through `addAppender`; what is left is a level and
-   filters per appender, and taking one away again.
-4. **Rolling files** — size and time based, with retention and compression.
-5. **Logger hierarchy** — `com.acme.checkout.Flow` inheriting from `com.acme` and
+3. **Rolling files** — size and time based, with retention and compression.
+4. **Logger hierarchy** — `com.acme.checkout.Flow` inheriting from `com.acme` and
    a root logger.
-6. **Configuration files** — with a defined precedence over system properties and
+5. **Configuration files** — with a defined precedence over system properties and
    the environment.
-7. **MDC** — per-thread context carried on the event and reachable from a
+6. **MDC** — per-thread context carried on the event and reachable from a
    pattern.
-8. **Structured output** — a JSON formatter and key-value pairs on the event.
-9. **An SLF4J provider**, so existing applications can swap it in unchanged.
+7. **Structured output** — a JSON formatter and key-value pairs on the event.
+8. **An SLF4J provider**, so existing applications can swap it in unchanged.
 
 ## Contributing
 

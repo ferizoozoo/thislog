@@ -16,6 +16,8 @@ public interface Loggable extends AutoCloseable {
 
     void addAppender(Appender appender);
 
+    void removeAppender(Appender appender);
+
     LogLevel getCurrentLogLevel();
 
     void setCurrentLogLevel(LogLevel level);

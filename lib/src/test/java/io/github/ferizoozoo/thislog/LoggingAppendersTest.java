@@ -64,10 +64,11 @@ public class LoggingAppendersTest {
         return sink.toString(StandardCharsets.UTF_8);
     }
 
-    private static final class Recorder implements Appender {
+    private static class Recorder implements Appender {
         final List<String> messages = new ArrayList<>();
         int flushes;
         int closes;
+        LogLevel level = LogLevel.TRACE;
 
         @Override
         public void append(LogEvent event) {
@@ -87,6 +88,16 @@ public class LoggingAppendersTest {
         @Override
         public boolean checkFailure() {
             return false;
+        }
+
+        @Override
+        public LogLevel getLogLevel() {
+            return level;
+        }
+
+        @Override
+        public void setLogLevel(LogLevel level) {
+            this.level = level;
         }
     }
 
@@ -109,6 +120,15 @@ public class LoggingAppendersTest {
         @Override
         public boolean checkFailure() {
             throw new IllegalStateException("checkFailure is broken");
+        }
+
+        @Override
+        public LogLevel getLogLevel() {
+            return LogLevel.TRACE;
+        }
+
+        @Override
+        public void setLogLevel(LogLevel level) {
         }
     }
 
@@ -145,6 +165,85 @@ public class LoggingAppendersTest {
         log.debug("dropped before any appender sees it");
 
         assertEquals(List.of(), added.messages);
+    }
+
+    @Test
+    public void aLineBelowAnAppendersLevelSkipsOnlyThatAppender() {
+        var log = onStdout();
+        var errorsOnly = new Recorder();
+        errorsOnly.setLogLevel(LogLevel.ERROR);
+
+        log.addAppender(errorsOnly);
+        log.info("below the appender");
+        log.error("at the appender");
+
+        assertEquals("below the appender" + NL + "at the appender" + NL, stdoutText());
+        assertEquals(List.of("at the appender"), errorsOnly.messages);
+    }
+
+    @Test
+    public void anAppendersLevelCannotLetThroughWhatTheLoggerDrops() {
+        var log = onStdout();
+        var everything = new Recorder();
+        everything.setLogLevel(LogLevel.TRACE);
+
+        log.addAppender(everything);
+        log.debug("dropped by the logger");
+
+        assertEquals(List.of(), everything.messages);
+    }
+
+    @Test
+    public void anAppendersLevelCanBeMovedWhileTheLoggerIsInUse() {
+        var log = onStdout();
+        var added = new Recorder();
+        log.addAppender(added);
+
+        log.info("before");
+        added.setLogLevel(LogLevel.WARN);
+        log.info("after");
+
+        assertEquals(List.of("before"), added.messages);
+    }
+
+    @Test
+    public void anAppenderWithoutALevelTakesEverythingTheLoggerLetsThrough() {
+        var log = onStdout();
+        var added = new Recorder();
+        added.setLogLevel(null);
+
+        log.addAppender(added);
+        log.info("let through");
+
+        assertEquals(List.of("let through"), added.messages);
+    }
+
+    @Test
+    public void aStreamAppenderStartsAtTrace() {
+        var appender = StreamAppender.create(new ByteArrayOutputStream(), event -> "");
+
+        assertEquals(LogLevel.TRACE, appender.getLogLevel());
+    }
+
+    @Test
+    public void aStreamAppenderRejectsALevelThatIsNotThere() {
+        var appender = StreamAppender.create(new ByteArrayOutputStream(), event -> "");
+
+        assertThrows(NullPointerException.class, () -> appender.setLogLevel(null));
+    }
+
+    @Test
+    public void aStreamAppenderAboveTheLineWritesNothing() {
+        var log = onStdout();
+        var sink = new ByteArrayOutputStream();
+        var appender = StreamAppender.create(sink, PatternFormatter.create("%m"));
+        appender.setLogLevel(LogLevel.WARN);
+
+        log.addAppender(appender);
+        log.info("quiet");
+        log.warn("loud");
+
+        assertEquals("loud" + NL, textOf(sink));
     }
 
     @Test
@@ -260,6 +359,113 @@ public class LoggingAppendersTest {
         var log = onStdout();
 
         assertThrows(NullPointerException.class, () -> log.addAppender(null));
+    }
+
+    @Test
+    public void aRemovedAppenderGetsNoMoreLines() {
+        var log = onStdout();
+        var added = new Recorder();
+        log.addAppender(added);
+
+        log.info("before");
+        log.removeAppender(added);
+        log.info("after");
+
+        assertEquals(List.of("before"), added.messages);
+        assertEquals("before" + NL + "after" + NL, stdoutText());
+    }
+
+    @Test
+    public void aRemovedAppenderIsFlushedThenClosed() {
+        var log = onStdout();
+        var calls = new ArrayList<String>();
+        var added = new Recorder() {
+            @Override
+            public void flush() {
+                calls.add("flush");
+            }
+
+            @Override
+            public void close() {
+                calls.add("close");
+            }
+        };
+        log.addAppender(added);
+
+        log.removeAppender(added);
+
+        assertEquals(List.of("flush", "close"), calls);
+    }
+
+    @Test
+    public void aRemovedAppenderIsNotTouchedWhenTheLoggerCloses() {
+        var log = onStdout();
+        var added = new Recorder();
+        log.addAppender(added);
+
+        log.removeAppender(added);
+        log.close();
+
+        assertEquals(1, added.flushes);
+        assertEquals(1, added.closes);
+    }
+
+    @Test
+    public void removingAnAppenderTheLoggerDoesNotHaveChangesNothing() {
+        var log = onStdout();
+        var stranger = new Recorder();
+
+        log.removeAppender(stranger);
+        log.info("still on stdout");
+
+        assertEquals(0, stranger.closes);
+        assertEquals("still on stdout" + NL, stdoutText());
+    }
+
+    @Test
+    public void theAppenderFromTheOptionsCannotBeRemoved() {
+        var given = new Recorder();
+        var log = Logging.create("com.acme.Boot", plainlyTo(LogDestination.STDOUT).withAppender(given));
+
+        assertThrows(IllegalArgumentException.class, () -> log.removeAppender(given));
+        log.info("still delivered");
+
+        assertEquals(0, given.closes);
+        assertEquals(List.of("still delivered"), given.messages);
+    }
+
+    @Test
+    public void changingTheOptionsAfterARemovalLeavesTheOtherAddedAppendersInPlace() {
+        var log = onStdout();
+        var removed = new Recorder();
+        var kept = new Recorder();
+        log.addAppender(removed);
+        log.addAppender(kept);
+
+        log.removeAppender(removed);
+        log.changeOptions(plainlyTo(LogDestination.STDERR));
+        log.info("after the move");
+
+        assertEquals(0, kept.closes);
+        assertEquals(List.of("after the move"), kept.messages);
+        assertEquals("after the move" + NL, stderrText());
+    }
+
+    @Test
+    public void aClosedLoggerRefusesARemoval() {
+        var log = onStdout();
+        var added = new Recorder();
+        log.addAppender(added);
+        log.close();
+
+        assertThrows(IllegalStateException.class, () -> log.removeAppender(added));
+    }
+
+    @Test
+    public void removingAnAppenderThatIsNotThereIsRejected() {
+        var log = onStdout();
+
+        assertThrows(NullPointerException.class, () -> log.removeAppender(null));
     }
 
     @Test

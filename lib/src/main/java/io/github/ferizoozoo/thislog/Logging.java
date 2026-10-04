@@ -94,6 +94,29 @@ public class Logging implements Loggable {
     }
 
     @Override
+    public synchronized void removeAppender(Appender appender) {
+        Objects.requireNonNull(appender, "appender");
+        if (this.closed) {
+            throw new IllegalStateException("logger '" + this.name + "' is closed");
+        }
+
+        var updated = new ArrayList<>(this.appenders);
+        int index = updated.indexOf(appender);
+        if (index < 0) {
+            return;
+        }
+        if (index == 0) {
+            throw new IllegalArgumentException("the appender from the options of '" + this.name
+                    + "' is replaced through changeOptions, not removed");
+        }
+        updated.remove(index);
+        this.appenders = List.copyOf(updated);
+
+        guarded(appender, Appender::flush);
+        guarded(appender, Appender::close);
+    }
+
+    @Override
     public String getName() {
         return this.name;
     }
@@ -157,11 +180,20 @@ public class Logging implements Loggable {
 
     private synchronized void write(LogEvent logEvent) {
         for (Appender appender : this.appenders) {
-            guarded(appender, each -> each.append(logEvent));
+            guarded(appender, each -> {
+                if (accepts(each, logEvent.getLevel())) {
+                    each.append(logEvent);
+                }
+            });
         }
         if (logEvent.getLevel().severity() >= FLUSH_THRESHOLD.severity()) {
             flushAndReportWriteFailure();
         }
+    }
+
+    private static boolean accepts(Appender appender, LogLevel level) {
+        var threshold = appender.getLogLevel();
+        return threshold == null || level.severity() >= threshold.severity();
     }
 
     private void flushAndReportWriteFailure() {

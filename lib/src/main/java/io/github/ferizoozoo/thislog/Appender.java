@@ -9,4 +9,8 @@ public interface Appender extends AutoCloseable {
     void close();
 
     boolean checkFailure();
+
+    LogLevel getLogLevel();
+
+    void setLogLevel(LogLevel level);
 }

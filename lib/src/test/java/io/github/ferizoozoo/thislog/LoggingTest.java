@@ -339,6 +339,7 @@ public class LoggingTest {
             @Override public void changeOptions(LogOptions options) { }
             @Override public LogOptions getOptions() { return null; }
             @Override public void addAppender(Appender appender) { }
+            @Override public void removeAppender(Appender appender) { }
             @Override public LogLevel getCurrentLogLevel() { return LogLevel.TRACE; }
             @Override public void setCurrentLogLevel(LogLevel level) { }
             @Override public boolean isEnabled(LogLevel level) { return true; }

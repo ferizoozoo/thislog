@@ -1,5 +1,6 @@
 package io.github.ferizoozoo.thislog;
 
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -40,6 +41,26 @@ public class FileAppenderTest {
 
     private static String contentsOf(File sink) throws Exception {
         return Files.readString(sink.toPath(), StandardCharsets.UTF_8);
+    }
+
+    @Test
+    public void aFileCanKeepMoreDetailThanTheConsole() throws Exception {
+        File sink = tempFolder.newFile();
+        var console = new ByteArrayOutputStream();
+        var consoleAppender = StreamAppender.create(console, PatternFormatter.create("%m"));
+        consoleAppender.setLogLevel(LogLevel.INFO);
+        var file = FileAppender.create(sink.getAbsolutePath(), LogEvent::getMessage);
+        var log = Logging.create("com.acme.Audit", LogOptions.createFromEnvironment()
+                .withLevel(LogLevel.DEBUG)
+                .withAppender(consoleAppender));
+        log.addAppender(file);
+
+        log.debug("details for the file");
+        log.info("for both");
+        log.close();
+
+        assertEquals("for both" + NL, console.toString(StandardCharsets.UTF_8));
+        assertEquals("details for the file" + NL + "for both" + NL, contentsOf(sink));
     }
 
     @Test

@@ -1,9 +1,12 @@
 package io.github.ferizoozoo.thislog;
 
+import java.util.Objects;
+
 public class FileAppender implements Appender {
     private final String path;
     private final Appender delegate;
     private volatile boolean closed;
+    private volatile LogLevel logLevel = LogLevel.TRACE;
 
     private FileAppender(String path, LogFormatter formatter) {
         this.path = path;
@@ -43,5 +46,15 @@ public class FileAppender implements Appender {
     @Override
     public boolean checkFailure() {
         return this.delegate.checkFailure();
+    }
+
+    @Override
+    public LogLevel getLogLevel() {
+        return this.logLevel;
+    }
+
+    @Override
+    public void setLogLevel(LogLevel level) {
+        this.logLevel = Objects.requireNonNull(level, "level");
     }
 }

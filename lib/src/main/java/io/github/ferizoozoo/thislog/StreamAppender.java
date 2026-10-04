@@ -3,6 +3,7 @@ package io.github.ferizoozoo.thislog;
 import java.io.OutputStream;
 import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
+import java.util.Objects;
 
 public class StreamAppender implements Appender {
     private static final String LINE_SEPARATOR = System.lineSeparator();
@@ -12,6 +13,8 @@ public class StreamAppender implements Appender {
     private final boolean ownsStream;
     private boolean hasFailed = false;
     private boolean failureReported = false;
+
+    private volatile LogLevel logLevel = LogLevel.TRACE;
 
     private StreamAppender(OutputStream outputStream, LogFormatter formatter, boolean ownsStream) {
         this.outputStream = outputStream;
@@ -99,5 +102,15 @@ public class StreamAppender implements Appender {
         }
         writeLine(line);
         this.flush();
+    }
+
+    @Override
+    public LogLevel getLogLevel() {
+        return this.logLevel;
+    }
+
+    @Override
+    public void setLogLevel(LogLevel level) {
+        this.logLevel = Objects.requireNonNull(level, "level");
     }
 }
