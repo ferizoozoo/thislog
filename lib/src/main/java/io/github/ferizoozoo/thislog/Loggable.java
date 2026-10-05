@@ -125,4 +125,34 @@ public interface Loggable extends AutoCloseable {
     default void fatal(String message) {
         log(LogLevel.FATAL, message, null);
     }
+
+    default void trace(String message, Object... params) {
+        log(LogLevel.TRACE, () -> Placeholders.formatMessageWithParams(message, params),
+                Placeholders.trailingThrowable(params));
+    }
+
+    default void debug(String message, Object... params) {
+        log(LogLevel.DEBUG, () -> Placeholders.formatMessageWithParams(message, params),
+                Placeholders.trailingThrowable(params));
+    }
+
+    default void info(String message, Object... params) {
+        log(LogLevel.INFO, () -> Placeholders.formatMessageWithParams(message, params),
+                Placeholders.trailingThrowable(params));
+    }
+
+    default void warn(String message, Object... params) {
+        log(LogLevel.WARN, () -> Placeholders.formatMessageWithParams(message, params),
+                Placeholders.trailingThrowable(params));
+    }
+
+    default void error(String message, Object... params) {
+        log(LogLevel.ERROR, () -> Placeholders.formatMessageWithParams(message, params),
+                Placeholders.trailingThrowable(params));
+    }
+
+    default void fatal(String message, Object... params) {
+        log(LogLevel.FATAL, () -> Placeholders.formatMessageWithParams(message, params),
+                Placeholders.trailingThrowable(params));
+    }
 }
