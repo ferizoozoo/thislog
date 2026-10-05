@@ -8,12 +8,12 @@ a **destination** that line is written to. Nothing else is required, and there i
 nothing to configure before the first call works. When one destination is not
 enough, **appenders** add more — see [More than one destination](#more-than-one-destination).
 
-> **Status: early.** The core (levels, named loggers, deferred messages, the
-> pattern language, console and file destinations, appenders, full stack
-> traces, one shared writer per file, and a flush on exit) is implemented and
-> covered by tests. The pieces a mature logging library is expected to have —
-> parameterized `{}` messages, rolling files, MDC, an SLF4J binding — are not
-> there yet. See [Roadmap](#roadmap).
+> **Status: early.** The core (levels, named loggers, deferred and
+> parameterized `{}` messages, the pattern language, console and file
+> destinations, appenders, full stack traces, one shared writer per file, and a
+> flush on exit) is implemented and covered by tests. The pieces a mature
+> logging library is expected to have — rolling files, MDC, an SLF4J binding —
+> are not there yet. See [Roadmap](#roadmap).
 
 ## Requirements
 
@@ -56,6 +56,7 @@ import io.github.ferizoozoo.thislog.LoggingFactory;
 var log = LoggingFactory.get(OrderRouter.class, LogOptions.createFromEnvironment());
 
 log.info("order 4711 accepted");
+log.info("user {} added {} items", userId, count);
 log.warn("stock running low");
 log.error("could not price the basket", new IllegalStateException("pricing failed"));
 ```
@@ -73,18 +74,51 @@ keeps resolving to the logger it had.
 
 `TRACE < DEBUG < INFO < WARN < ERROR < FATAL`.
 
-A message is either a `String` or a `Supplier<String>`:
+A message comes in three forms:
 
 ```java
 log.info("order 4711 accepted");                   // already a string
+log.info("user {} did {}", userId, action);        // filled in only if it is written
 log.debug(() -> describe(everyCandidateRoute()));  // built only if it is written
 ```
 
-Take the `String` form when the message is a literal or already in hand, and the
-supplier form when building it costs something — a supplier is never called for
-a line that will not be written, which is the whole reason to defer. Each of the
-six levels has both forms, and a second form of each that also takes a
-throwable.
+Take the `String` form when the message is a literal, the `{}` form when it
+carries values, and the supplier form when building it costs something. Each of
+the six levels has all three, and the `String` and supplier forms each have a
+second version that also takes a throwable.
+
+The difference is when the work happens. Java evaluates arguments before the
+call, so a plain string is built whether or not the line is written. The `{}`
+form passes its arguments as they are and substitutes them only for a line that
+will be written, so a dropped line never calls their `toString`. The arguments
+themselves are still evaluated at the call, though: `log.debug("{}",
+describe(routes))` runs `describe` either way. When the expensive part is the
+argument, reach for the supplier — it is never called for a line that will not
+be written, which is the whole reason to defer.
+
+### Placeholders
+
+Each `{}` takes the next argument, in order:
+
+- An argument with no `{}` left for it is left out; a `{}` with no argument left
+  stays `{}`.
+- `null` renders as `null`, and an array renders its contents — `[1, 2, 3]`
+  rather than `[I@1b6d3586`.
+- A throwable in last place is also the line's cause, and its stack trace is
+  rendered under the line:
+
+  ```java
+  log.error("order {} failed", orderId, e);
+  ```
+
+- There is no escape: a literal `{}` in a message with arguments is always a
+  placeholder.
+
+A throwable as the only argument, as in `log.info("failed: {}", e)`, picks the
+`(String, Throwable)` form, which substitutes nothing: the line reads
+`failed: {}` with the stack trace under it, as it would in SLF4J. And since
+`log.info("x", null)` matches both that form and the `{}` form, Java rejects it
+as ambiguous; write `(Object) null`.
 
 A logger starts at `INFO`, so `TRACE` and `DEBUG` are dropped until you lower
 it.
@@ -359,20 +393,17 @@ library currently does.
 
 Roughly in the order it makes sense to build:
 
-1. **Parameterized messages** — `log.info("user {} did {}", id, action)`, for the
-   fixed-arity call SLF4J users expect. The plain `String` and `Supplier<String>`
-   forms are both in; what is left is the `{}` substitution.
-2. **More of the pattern language** — column widths (`%-5level`), a date format
+1. **More of the pattern language** — column widths (`%-5level`), a date format
    per pattern (`%date{HH:mm:ss}`), `%F`/`%L` for the call site.
-3. **Rolling files** — size and time based, with retention and compression.
-4. **Logger hierarchy** — `com.acme.checkout.Flow` inheriting from `com.acme` and
+2. **Rolling files** — size and time based, with retention and compression.
+3. **Logger hierarchy** — `com.acme.checkout.Flow` inheriting from `com.acme` and
    a root logger.
-5. **Configuration files** — with a defined precedence over system properties and
+4. **Configuration files** — with a defined precedence over system properties and
    the environment.
-6. **MDC** — per-thread context carried on the event and reachable from a
+5. **MDC** — per-thread context carried on the event and reachable from a
    pattern.
-7. **Structured output** — a JSON formatter and key-value pairs on the event.
-8. **An SLF4J provider**, so existing applications can swap it in unchanged.
+6. **Structured output** — a JSON formatter and key-value pairs on the event.
+7. **An SLF4J provider**, so existing applications can swap it in unchanged.
 
 ## Contributing
 
