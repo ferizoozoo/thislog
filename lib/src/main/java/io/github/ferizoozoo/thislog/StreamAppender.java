@@ -85,6 +85,10 @@ public class StreamAppender implements Appender {
 
     private void writeLine(String line) {
         try {
+            if (this.outputStream instanceof PrintStream printStream) {
+                printStream.println(line);
+                return;
+            }
             this.outputStream.write((line + LINE_SEPARATOR).getBytes(StandardCharsets.UTF_8));
         } catch (Exception e) {
             this.hasFailed = true;

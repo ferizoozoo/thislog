@@ -7,6 +7,7 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.PrintStream;
 import java.io.UncheckedIOException;
+import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -44,7 +45,7 @@ final class FileStreams {
         if (--entry.holders == 0) {
             OPEN.remove(key);
             try {
-                entry.stream.flush();  
+                entry.stream.flush();
             } catch (Exception e) {
             } finally {
                 entry.stream.close();
@@ -63,7 +64,8 @@ final class FileStreams {
     private static PrintStream open(String path) {
         try {
             return new PrintStream(
-                    new BufferedOutputStream(new FileOutputStream(path, true)), false);
+                    new BufferedOutputStream(new FileOutputStream(path, true)), false, StandardCharsets.UTF_8);
+
         } catch (FileNotFoundException e) {
             throw new UncheckedIOException(e);
         }
