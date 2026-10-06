@@ -27,7 +27,7 @@ Published as `io.github.ferizoozoo:thislog`.
 
 ```kotlin
 dependencies {
-    implementation("io.github.ferizoozoo:thislog:0.1.0-SNAPSHOT")
+    implementation("io.github.ferizoozoo:thislog:0.1.0")
 }
 ```
 
@@ -37,13 +37,36 @@ dependencies {
 <dependency>
   <groupId>io.github.ferizoozoo</groupId>
   <artifactId>thislog</artifactId>
-  <version>0.1.0-SNAPSHOT</version>
+  <version>0.1.0</version>
 </dependency>
 ```
 
-Snapshots are published to GitHub Packages, so you will need that repository
-configured. To build against a local copy instead, run `./gradlew
+Releases are published to GitHub Packages, so you will need that repository
+configured:
+
+```kotlin
+repositories {
+    maven {
+        url = uri("https://maven.pkg.github.com/ferizoozoo/thislog")
+        credentials {
+            username = providers.gradleProperty("gpr.user").orNull
+            password = providers.gradleProperty("gpr.key").orNull
+        }
+    }
+}
+```
+
+GitHub Packages asks for a login even to read a public package: `gpr.user` is
+your GitHub username and `gpr.key` a personal access token with the
+`read:packages` scope, both kept in `~/.gradle/gradle.properties` rather than
+in the build. To build against a local copy instead, run `./gradlew
 :lib:publishToMavenLocal` and add `mavenLocal()` to your repositories.
+
+### Releasing
+
+Publishing a GitHub release whose tag is a version — `v0.1.0`, `v1.2.3-rc.1` —
+builds, tests, and publishes that version. The `version` in `gradle.properties`
+is only what local builds and manual runs of the publish workflow use.
 
 On the module path, the module name is `io.github.ferizoozoo.thislog`.
 
