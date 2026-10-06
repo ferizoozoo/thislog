@@ -32,7 +32,7 @@ final class Flusher {
                 thread.setDaemon(true);
                 return thread;
             });
-            timer.scheduleWithFixedDelay(LoggingFactory::flushAll,
+            timer.scheduleWithFixedDelay(Flusher::flushOrStop,
                     intervalMs, intervalMs, TimeUnit.MILLISECONDS);
         }
     }
@@ -46,6 +46,29 @@ final class Flusher {
             Runtime.getRuntime().addShutdownHook(
                     new Thread(LoggingFactory::flushAll, "thislog-shutdown"));
         } catch (IllegalStateException alreadyShuttingDown) {
+        }
+    }
+
+    private static void flushOrStop() {
+        ScheduledExecutorService current;
+        synchronized (LOCK) {
+            current = timer;
+        }
+        boolean anyOpen;
+        try {
+            anyOpen = LoggingFactory.flushAll();
+        } catch (Throwable t) {
+            return;
+        }
+        if (anyOpen) {
+            return;
+        }
+        synchronized (LOCK) {
+            if (current == null || timer != current) {
+                return;
+            }
+            timer.shutdown();
+            timer = null;
         }
     }
 

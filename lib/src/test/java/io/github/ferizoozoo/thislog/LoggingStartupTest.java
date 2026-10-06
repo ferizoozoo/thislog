@@ -405,6 +405,67 @@ public class LoggingStartupTest {
         }
     }
 
+    private static boolean flushThreadIsRunning() {
+        return Thread.getAllStackTraces().keySet().stream()
+                .anyMatch(thread -> thread.getName().equals("thislog-flush") && thread.isAlive());
+    }
+
+    @Test
+    public void anOpenLoggerKeepsBeingFlushedAfterTheFirstTick() throws Exception {
+        var sink = tempFolder.newFile();
+        Flusher.setIntervalForTesting(50);
+        try {
+            var log = LoggingFactory.get("com.acme.Steady",
+                    plainlyTo(LogDestination.file(sink.getAbsolutePath())));
+
+            // Several ticks go by before the line is written, so it is not
+            // the first flush that carries it out.
+            Thread.sleep(300);
+            log.info(() -> "written well after the timer started");
+
+            var deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(10);
+            while (Files.size(sink.toPath()) == 0 && System.nanoTime() < deadline) {
+                Thread.sleep(10);
+            }
+
+            assertEquals("the timer should keep flushing while a logger is open",
+                    java.util.List.of("written well after the timer started"),
+                    Files.readAllLines(sink.toPath()));
+        } finally {
+            Flusher.resetIntervalForTesting();
+        }
+    }
+
+    @Test
+    public void theFlushThreadStopsOnceNoLoggerIsLeftOpen() throws Exception {
+        var sink = tempFolder.newFile();
+        Flusher.setIntervalForTesting(50);
+        try {
+            var log = LoggingFactory.get("com.acme.Brief",
+                    plainlyTo(LogDestination.file(sink.getAbsolutePath())));
+            assertTrue("a file logger should start the flush thread", flushThreadIsRunning());
+
+            log.close();
+
+            var deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(10);
+            while (flushThreadIsRunning() && System.nanoTime() < deadline) {
+                // Loggers other tests left open are only forgotten once they
+                // have been collected.
+                System.gc();
+                Thread.sleep(20);
+            }
+
+            assertFalse("with nothing open, the flush thread should stop", flushThreadIsRunning());
+
+            LoggingFactory.get("com.acme.Again",
+                    plainlyTo(LogDestination.file(sink.getAbsolutePath())));
+
+            assertTrue("a file opened afterwards should start it again", flushThreadIsRunning());
+        } finally {
+            Flusher.resetIntervalForTesting();
+        }
+    }
+
     @Test
     public void aConsoleOnlyLoggerStartsNoThread() {
         Flusher.setIntervalForTesting(50);

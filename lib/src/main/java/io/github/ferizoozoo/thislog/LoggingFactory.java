@@ -78,18 +78,26 @@ public final class LoggingFactory {
         LOGGERS.clear();
     }
 
-    static void flushAll() {
+    // Returns whether any logger is still open, so the flush timer knows
+    // whether it has anything left to do.
+    static boolean flushAll() {
         List<Loggable> snapshot;
         synchronized (LIVE) {
             snapshot = new ArrayList<>(LIVE);
         }
+        boolean anyOpen = false;
         for (Loggable logger : snapshot) {
             try {
                 logger.flush();
             } catch (RuntimeException e) {
                 System.err.println("thislog: could not flush '" + logger.getName() + "' (" + e + ")");
             }
+            // A Loggable of someone else's cannot say whether it is closed.
+            if (!(logger instanceof Logging logging) || !logging.isClosed()) {
+                anyOpen = true;
+            }
         }
+        return anyOpen;
     }
 
     private LoggingFactory() {

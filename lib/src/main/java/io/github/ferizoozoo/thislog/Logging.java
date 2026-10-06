@@ -121,6 +121,10 @@ public class Logging implements Loggable {
         return this.name;
     }
 
+    boolean isClosed() {
+        return this.closed;
+    }
+
     @Override
     public LogOptions getOptions() {
         return this.options;
