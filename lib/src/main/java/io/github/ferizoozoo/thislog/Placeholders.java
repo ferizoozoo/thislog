@@ -45,4 +45,19 @@ final class Placeholders {
         }
         return params[params.length - 1] instanceof Throwable thrown ? thrown : null;
     }
+
+    static boolean placeholdersLessThanArgumentList(String message, Object[] params) {
+        if (message == null || params == null) {
+            return false;
+        }
+
+        int count = 0;
+        for (int i = 0; i < message.length() - 1; i++) {
+            if (message.charAt(i) == '{' && message.charAt(i + 1) == '}') {
+                count++;
+            }
+        }
+
+        return count < params.length;
+    }
 }
