@@ -96,15 +96,16 @@ public class StreamAppender implements Appender {
     }
 
     private void reportFormattingFailure(LogEvent event, Exception failure) {
-        String line;
+        StringBuilder line = new StringBuilder();
         try {
             var recovery = LogEvent.create("Failed to format log message", LogLevel.ERROR,
                     System.currentTimeMillis(), event.getLoggerName(), failure);
-            line = this.formatter.format(recovery);
+            line.append(this.formatter.format(recovery));
         } catch (Exception alsoFailed) {
-            line = LogLevel.coloredMessage("Failed to format log message: " + failure, LogLevel.ERROR);
+            line.append("Failed to format log message: ");
+            line.append(failure);
         }
-        writeLine(line);
+        writeLine(line.toString());
         this.flush();
     }
 

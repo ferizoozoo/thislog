@@ -37,7 +37,6 @@ public class LoggingTest {
     private static final String GREEN = ESC + "[32m";
     private static final String YELLOW = ESC + "[33m";
     private static final String RED = ESC + "[31m";
-    private static final String BLUE = ESC + "[34m";
 
     private static final String NL = System.lineSeparator();
 
@@ -57,7 +56,7 @@ public class LoggingTest {
         }
 
         String rendered() {
-            return LogLevel.color(level) + "[" + level + "] " + message + RESET;
+            return AsciiColors.color(level) + "[" + level + "] " + message + RESET;
         }
     }
 
@@ -360,9 +359,9 @@ public class LoggingTest {
         log.warn(() -> "yellow");
         log.error(() -> "red");
 
-        assertEquals(GREEN, LogLevel.color(formatter.calls.get(0).level()));
-        assertEquals(YELLOW, LogLevel.color(formatter.calls.get(1).level()));
-        assertEquals(RED, LogLevel.color(formatter.calls.get(2).level()));
+        assertEquals(GREEN, AsciiColors.color(formatter.calls.get(0).level()));
+        assertEquals(YELLOW, AsciiColors.color(formatter.calls.get(1).level()));
+        assertEquals(RED, AsciiColors.color(formatter.calls.get(2).level()));
     }
 
     @Test
@@ -823,8 +822,8 @@ public class LoggingTest {
         log.info(() -> "formatted at last");
 
         assertEquals(
-                RED + "Failed to format log message: "
-                        + "java.lang.IllegalStateException: formatter exploded" + RESET + NL
+                "Failed to format log message: "
+                        + "java.lang.IllegalStateException: formatter exploded" + NL
                         + replacement.only().rendered() + NL,
                 stdoutText());
     }
@@ -904,9 +903,25 @@ public class LoggingTest {
         logger(new AlwaysFailsFormatter()).info(() -> "never formatted");
 
         assertEquals(
-                RED + "Failed to format log message: "
-                        + "java.lang.IllegalStateException: formatter exploded" + RESET + NL,
+                "Failed to format log message: "
+                        + "java.lang.IllegalStateException: formatter exploded" + NL,
                 stdoutText());
+    }
+
+    @Test
+    public void theFallbackNoticeWritesNoColourEscapesIntoAFile() throws Exception {
+        File file = tempFolder.newFile();
+        var appender = FileAppender.create(file.getAbsolutePath(), new AlwaysFailsFormatter());
+
+        appender.append(LogEvent.create("never formatted", LogLevel.INFO, AT, NAME));
+        appender.close();
+
+        var written = Files.readString(file.toPath(), StandardCharsets.UTF_8);
+        assertEquals("a file is not a terminal, so the notice must be plain text",
+                "Failed to format log message: "
+                        + "java.lang.IllegalStateException: formatter exploded" + NL,
+                written);
+        assertFalse(written.contains(ESC));
     }
 
     @Test
@@ -1523,36 +1538,6 @@ public class LoggingTest {
         logger(PatternFormatter.create("%s")).info(() -> "terse");
 
         assertEquals("terse" + NL, stdoutText());
-    }
-
-    @Test
-    public void everyLevelMapsToAColour() {
-        assertEquals(BLUE, LogLevel.color(LogLevel.TRACE));
-        assertEquals(BLUE, LogLevel.color(LogLevel.DEBUG));
-        assertEquals(GREEN, LogLevel.color(LogLevel.INFO));
-        assertEquals(YELLOW, LogLevel.color(LogLevel.WARN));
-        assertEquals(RED, LogLevel.color(LogLevel.ERROR));
-        assertEquals(RED, LogLevel.color(LogLevel.FATAL));
-    }
-
-    @Test
-    public void theResetIsItsOwnThingRatherThanTheColourOfALevel() {
-        assertEquals("the reset used to be reachable only as color(OFF)",
-                RESET, LogLevel.reset());
-    }
-
-    @Test
-    public void everyLevelIsSomethingThatCanBeLoggedAt() {
-        for (LogLevel level : LogLevel.values()) {
-            assertNotEquals("a level worth logging at needs a colour of its own",
-                    RESET, LogLevel.color(level));
-        }
-    }
-
-    @Test
-    public void aColouredMessageIsWrappedInItsLevelAndClosedWithTheReset() {
-        assertEquals(YELLOW + "careful" + RESET,
-                LogLevel.coloredMessage("careful", LogLevel.WARN));
     }
 
     @Test

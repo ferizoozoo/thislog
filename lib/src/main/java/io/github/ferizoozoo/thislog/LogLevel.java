@@ -8,12 +8,6 @@ public enum LogLevel {
 
     private final int severity;
 
-    private static final String RESET = "\u001B[0m";
-    private static final String GREEN = "\u001B[32m";
-    private static final String YELLOW = "\u001B[33m";
-    private static final String RED = "\u001B[31m";
-    private static final String BLUE = "\u001B[34m";
-
     LogLevel(int severity) {
         this.severity = severity;
     }
@@ -33,32 +27,5 @@ public enum LogLevel {
             case "FATAL" -> FATAL;
             default -> throw new IllegalArgumentException("Invalid log level: " + level);
         };
-    }
-
-    public static String color(LogLevel level) {
-        return switch (level) {
-            case DEBUG ->
-                BLUE;
-            case INFO ->
-                GREEN;
-            case WARN ->
-                YELLOW;
-            case ERROR ->
-                RED;
-            case TRACE ->
-                BLUE;
-            case FATAL ->
-                RED;
-            default ->
-                RESET;
-        };
-    }
-
-    public static String coloredMessage(String message, LogLevel level) {
-        return color(level) + message + reset();
-    }
-
-    public static String reset() {
-        return RESET;
     }
 }

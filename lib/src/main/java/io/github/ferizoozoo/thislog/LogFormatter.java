@@ -8,6 +8,6 @@ public interface LogFormatter {
 
     static LogFormatter colored(LogFormatter delegate) {
         Objects.requireNonNull(delegate, "delegate");
-        return event -> LogLevel.coloredMessage(delegate.format(event), event.getLevel());
+        return event -> AsciiColors.coloredMessage(delegate.format(event), event.getLevel());
     }
 }
