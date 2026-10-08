@@ -6,8 +6,22 @@ import java.util.Objects;
 public interface LogFormatter {
     String format(LogEvent event);
 
+    default boolean rendersThrown() {
+        return false;
+    }
+
     static LogFormatter colored(LogFormatter delegate) {
         Objects.requireNonNull(delegate, "delegate");
-        return event -> AsciiColors.coloredMessage(delegate.format(event), event.getLevel());
+        return new LogFormatter() {
+            @Override
+            public String format(LogEvent event) {
+                return AsciiColors.coloredMessage(delegate.format(event), event.getLevel());
+            }
+
+            @Override
+            public boolean rendersThrown() {
+                return delegate.rendersThrown();
+            }
+        };
     }
 }

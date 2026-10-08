@@ -198,9 +198,12 @@ var log = LoggingFactory.get(OrderRouter.class,
 | ------------------------------ | ------------------------------------- |
 | `%m`, `%msg`, `%message`, `%s` | the message                           |
 | `%date`                        | the timestamp, `yyyy-MM-dd HH:mm:ss.SSS` |
+| `%date{HH:mm:ss}`              | the timestamp, in the format given    |
 | `%level`                       | the level                             |
 | `%thread`                      | the thread name                       |
 | `%logger`                      | the logger name                       |
+| `%ex`                          | the stack trace, on the lines below   |
+| `%nopex`                       | nothing — the stack trace is dropped  |
 | `%n`                           | the platform line separator           |
 
 **A conversion costs nothing unless the pattern names it.** The default pattern
@@ -208,10 +211,24 @@ is `%s`, which renders the message and nothing else — so someone who wants to 
 one word gets one word, with no timestamp and no level in front of it. Everything
 above is opt-in, one conversion at a time.
 
-There is nothing else to learn: no widths, no arguments, and no escape. A `%` the
-table above does not name is literal, so `"50% done: %m"` is a valid pattern and
-`create` never throws over one. A conversion has to end at a non-letter, so
-`%nonsense` is nine literal characters rather than `%n` followed by `onsense`.
+Any conversion can be given a width between the `%` and its name. It works
+exactly as it does for `%s` in `String.format`:
+
+| Modifier         | Effect                                                  |
+| ---------------- | ------------------------------------------------------- |
+| `%5level`        | at least 5 wide, padded on the left                     |
+| `%-5level`       | at least 5 wide, padded on the right                    |
+| `%.20logger`     | at most 20 wide, keeping the start                      |
+| `%-5.5level`     | exactly 5 wide                                          |
+
+A `%` the tables above do not name is literal, so `"50% done: %m"` is a valid
+pattern and `create` never throws over one. The same goes for a width with no
+conversion after it (`"100%5"`). The one thing `create` does reject is a
+`%date{...}` whose format the JDK's `DateTimeFormatter` cannot read. A brace
+that is never closed is not a format, so `%date{HH:mm` is the default date
+followed by `{HH:mm`, and only `%date` takes a brace. A conversion has to
+end at a non-letter, so `%nonsense` is nine literal characters rather than `%n`
+followed by `onsense`. There is no escape for a literal `%m`.
 
 The message is appended into the line rather than substituted into the pattern,
 so a `%` inside a logged message is never read as a conversion.
@@ -256,9 +273,12 @@ itself ends in `[CIRCULAR REFERENCE: ...]` rather than spinning.
 The whole trace is built into the line and written once, so a trace never
 interleaves with another thread's — see [Destinations](#destinations).
 
-The trace is appended by the appender rather than by the formatter, so a custom
-`LogFormatter` cannot currently suppress it or move it. A `%ex` conversion is
-the natural home for that, and is not there yet.
+By default the appender puts the trace under the formatted line. A pattern that
+names `%ex` places it itself — `"%m%ex [%level]"` puts the level after the
+trace — and one that names `%nopex` drops it. `%ex` renders nothing for an event
+without a throwable, so `"%m%ex"` is exactly the default. A formatter of your own
+takes the trace over the same way, by overriding `rendersThrown()` to return
+`true`.
 
 ## Destinations
 
@@ -416,8 +436,8 @@ library currently does.
 
 Roughly in the order it makes sense to build:
 
-1. **More of the pattern language** — column widths (`%-5level`), a date format
-   per pattern (`%date{HH:mm:ss}`), `%F`/`%L` for the call site.
+1. **More of the pattern language** — `%F`/`%L` for the call site, once the
+   event carries it.
 2. **Rolling files** — size and time based, with retention and compression.
 3. **Logger hierarchy** — `com.acme.checkout.Flow` inheriting from `com.acme` and
    a root logger.

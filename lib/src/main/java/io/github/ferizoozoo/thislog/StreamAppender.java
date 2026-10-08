@@ -35,7 +35,7 @@ public class StreamAppender implements Appender {
         String line;
         try {
             var logMessageBuilder = new StringBuilder(this.formatter.format(event));
-            if (event.getThrown() != null) {
+            if (event.getThrown() != null && !this.formatter.rendersThrown()) {
                 logMessageBuilder.append(LINE_SEPARATOR)
                         .append(StackTraces.render(event.getThrown()));
             }
