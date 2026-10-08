@@ -27,7 +27,7 @@ Published as `io.github.ferizoozoo:thislog`.
 
 ```kotlin
 dependencies {
-    implementation("io.github.ferizoozoo:thislog:0.1.0")
+    implementation("io.github.ferizoozoo:thislog:0.2.0")
 }
 ```
 
@@ -37,7 +37,7 @@ dependencies {
 <dependency>
   <groupId>io.github.ferizoozoo</groupId>
   <artifactId>thislog</artifactId>
-  <version>0.1.0</version>
+  <version>0.2.0</version>
 </dependency>
 ```
 
