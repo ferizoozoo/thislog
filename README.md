@@ -10,10 +10,11 @@ enough, **appenders** add more — see [More than one destination](#more-than-on
 
 > **Status: early.** The core (levels, named loggers, deferred and
 > parameterized `{}` messages, the pattern language, console and file
-> destinations, appenders, full stack traces, one shared writer per file, and a
-> flush on exit) is implemented and covered by tests. The pieces a mature
-> logging library is expected to have — rolling files, MDC, an SLF4J binding —
-> are not there yet. See [Roadmap](#roadmap).
+> destinations, appenders, full stack traces, one shared writer per file, a
+> flush on exit, and files that roll over on a fixed interval) is implemented
+> and covered by tests. The pieces a mature logging library is expected to
+> have — size-based rolling with retention, MDC, an SLF4J binding — are not
+> there yet. See [Roadmap](#roadmap).
 
 ## Requirements
 
@@ -27,7 +28,7 @@ Published as `io.github.ferizoozoo:thislog`.
 
 ```kotlin
 dependencies {
-    implementation("io.github.ferizoozoo:thislog:0.2.0")
+    implementation("io.github.ferizoozoo:thislog:0.3.0")
 }
 ```
 
@@ -37,7 +38,7 @@ dependencies {
 <dependency>
   <groupId>io.github.ferizoozoo</groupId>
   <artifactId>thislog</artifactId>
-  <version>0.2.0</version>
+  <version>0.3.0</version>
 </dependency>
 ```
 
@@ -358,6 +359,47 @@ beside it, which are then not opened or used. It belongs to the logger the same
 way an added one does: a `changeOptions(...)` that carries the same appender
 forward keeps it, and one that moves off it closes it.
 
+### Rolling files
+
+`RollingFileAppender` writes to a file and moves on to a new one each time an
+interval has passed:
+
+```java
+var daily = RollingFileAppender.create("logs/app.log",
+        PatternFormatter.create("%date %level %m"), Duration.ofDays(1).toMillis());
+log.addAppender(daily);
+```
+
+The interval is counted from when the appender is created, then from each
+roll. The check happens when a line is written, so a quiet logger does not
+roll until it has something to write, and the line that finds the interval
+over is the first one in the new file. A line is never split between two
+files.
+
+The first period goes to the path you give. Each one after it goes to a new
+file in the same directory, named after that path with a timestamp added, so
+the files sort in the order they were written. Earlier files are left as they
+are: nothing is deleted or compressed.
+
+This is the first version, and it is deliberately small:
+
+- **Starting the appender empties the file at that path.** It does not append
+  to what an earlier run left there, so move that file aside first if you need
+  it.
+- **Intervals are not aligned to the clock.** A daily appender created at 15:20
+  rolls at 15:20, not at midnight, and a restart starts the count again.
+- **The timestamp has one-second resolution.** Two rolls in the same second
+  write to the same file, and the second one replaces the first. Keep
+  intervals well above a second.
+- **One appender per file.** Unlike `FileAppender`, two rolling appenders on the
+  same path do not share a writer, and neither knows about the other's files.
+- **The path needs an extension.** `app.log` works; a bare `app` cannot roll,
+  and the appender stops writing at the first roll — reported through
+  `checkFailure()` like any write error.
+
+Closing the appender — or the logger it was added to — flushes and closes the
+current file.
+
 ### Writing your own
 
 `Appender` is an interface, so a destination this library does not ship is a
@@ -438,7 +480,9 @@ Roughly in the order it makes sense to build:
 
 1. **More of the pattern language** — `%F`/`%L` for the call site, once the
    event carries it.
-2. **Rolling files** — size and time based, with retention and compression.
+2. **Rolling files, the rest** — size-based rolling, periods aligned to the
+   clock (midnight, the top of the hour), appending to the file a previous run
+   left, retention, and compression.
 3. **Logger hierarchy** — `com.acme.checkout.Flow` inheriting from `com.acme` and
    a root logger.
 4. **Configuration files** — with a defined precedence over system properties and
