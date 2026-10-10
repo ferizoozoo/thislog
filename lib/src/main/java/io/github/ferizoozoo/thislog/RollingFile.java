@@ -4,18 +4,23 @@ import java.io.BufferedOutputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
+import java.util.zip.GZIPOutputStream;
 
 final class RollingFile extends OutputStream {
     private final String baseFilename;
     private OutputStream out;
+    private String currentFilename;
     private final long intervalMs;
     private long lastRollAt;
 
     public RollingFile(String filename, long intervalMs) {
         this.baseFilename = filename;
+        this.currentFilename = this.baseFilename;
         this.intervalMs = intervalMs;
         this.lastRollAt = System.currentTimeMillis();
         try {
@@ -55,9 +60,11 @@ final class RollingFile extends OutputStream {
 
     public synchronized void roll() throws IOException {
         this.out.close();
-        var generatedFilename = this.generateFilename();
-        this.out = new BufferedOutputStream(new FileOutputStream(generatedFilename));
+        var finishedFilename = this.currentFilename;
+        this.currentFilename = this.generateFilename();
+        this.out = new BufferedOutputStream(new FileOutputStream(this.currentFilename));
         this.lastRollAt = System.currentTimeMillis();
+        gzip(Path.of(finishedFilename));
     }
 
     private String generateFilename() throws IOException {
@@ -72,4 +79,16 @@ final class RollingFile extends OutputStream {
                 .format(Instant.ofEpochMilli(lastRollAt));
         return name + stamp + "." + extension;
     }
+
+    private static void gzip(Path source) throws IOException {
+        var target = source.resolveSibling(source.getFileName() + ".gz");
+        var partial = source.resolveSibling(source.getFileName() + ".gz.tmp");
+        try (var in = Files.newInputStream(source);
+                var out = new GZIPOutputStream(Files.newOutputStream(partial))) {
+            in.transferTo(out);
+        }
+        Files.move(partial, target);
+        Files.delete(source);
+    }
+
 }
