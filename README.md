@@ -11,10 +11,10 @@ enough, **appenders** add more — see [More than one destination](#more-than-on
 > **Status: early.** The core (levels, named loggers, deferred and
 > parameterized `{}` messages, the pattern language, console and file
 > destinations, appenders, full stack traces, one shared writer per file, a
-> flush on exit, and files that roll over on a fixed interval) is implemented
-> and covered by tests. The pieces a mature logging library is expected to
-> have — size-based rolling with retention, MDC, an SLF4J binding — are not
-> there yet. See [Roadmap](#roadmap).
+> flush on exit, and files that roll over on a fixed interval and are
+> compressed) is implemented and covered by tests. The pieces a mature logging
+> library is expected to have — size-based rolling with retention, MDC, an
+> SLF4J binding — are not there yet. See [Roadmap](#roadmap).
 
 ## Requirements
 
@@ -378,14 +378,30 @@ files.
 
 The first period goes to the path you give. Each one after it goes to a new
 file in the same directory, named after that path with a timestamp added, so
-the files sort in the order they were written. Earlier files are left as they
-are: nothing is deleted or compressed.
+the files sort in the order they were written.
+
+A finished file is compressed with gzip: at a roll, `app.log` becomes
+`app.log.gz` and the uncompressed file is deleted. The compressed copy is
+written to `app.log.gz.tmp` first and renamed to `.gz` only once it is
+complete, so a crash part way through leaves the original in place rather than
+a cut-off archive. The file being written is never compressed, so the last one
+stays plain text when the application stops. Archives are never deleted; they
+build up until you remove them.
 
 This is the first version, and it is deliberately small:
 
 - **Starting the appender empties the file at that path.** It does not append
   to what an earlier run left there, so move that file aside first if you need
   it.
+- **Compression runs on the logging thread.** The line that triggers a roll
+  waits until the finished file is compressed, and so does every other thread
+  logging through the same logger. With large files that pause is noticeable.
+- **A restart cannot compress its first file.** Every run starts on the path
+  you give, so once one run has produced `app.log.gz`, the next run's first
+  roll finds that name taken: it leaves `app.log` uncompressed, next to a stray
+  `app.log.gz.tmp`, loses the line that triggered the roll, and reports the
+  failure through `checkFailure()`. Because of the bullet above, the run after
+  that empties `app.log`, so move it aside if you need it.
 - **Intervals are not aligned to the clock.** A daily appender created at 15:20
   rolls at 15:20, not at midnight, and a restart starts the count again.
 - **The timestamp has one-second resolution.** Two rolls in the same second
@@ -482,7 +498,8 @@ Roughly in the order it makes sense to build:
    event carries it.
 2. **Rolling files, the rest** — size-based rolling, periods aligned to the
    clock (midnight, the top of the hour), appending to the file a previous run
-   left, retention, and compression.
+   left, archive names that never clash, compressing in the background, and
+   retention.
 3. **Logger hierarchy** — `com.acme.checkout.Flow` inheriting from `com.acme` and
    a root logger.
 4. **Configuration files** — with a defined precedence over system properties and

@@ -80,8 +80,11 @@ final class RollingFile extends OutputStream {
         return name + stamp + "." + extension;
     }
 
-    private static void gzip(Path source) throws IOException {
+    private void gzip(Path source) throws IOException {
         var target = source.resolveSibling(source.getFileName() + ".gz");
+        while (Files.exists(target)) {
+            target = source.resolveSibling(this.generateFilename() + ".gz");
+        }
         var partial = source.resolveSibling(source.getFileName() + ".gz.tmp");
         try (var in = Files.newInputStream(source);
                 var out = new GZIPOutputStream(Files.newOutputStream(partial))) {

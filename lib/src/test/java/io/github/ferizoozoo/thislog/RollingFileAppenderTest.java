@@ -82,6 +82,33 @@ public class RollingFileAppenderTest {
     }
 
     @Test
+    public void aRestartCanCompressItsFirstFileWhenAnEarlierRunAlreadyDidSo() throws Exception {
+        var folder = tempFolder.newFolder();
+        var sink = new File(folder, "app.log");
+
+        var firstRun = appenderOn(sink, 50);
+        firstRun.append(event("first run, before the roll"));
+        Thread.sleep(100);
+        firstRun.append(event("first run, after the roll"));
+        firstRun.close();
+        assertTrue(new File(folder, "app.log.gz").exists());
+
+        var secondRun = appenderOn(sink, 50);
+        secondRun.append(event("second run, before the roll"));
+        Thread.sleep(100);
+        secondRun.append(event("second run, after the roll"));
+        secondRun.flush();
+
+        assertFalse(secondRun.checkFailure());
+        assertFalse(new File(folder, "app.log").exists());
+        assertEquals(List.of(), List.of(folder.list((dir, name) -> name.endsWith(".tmp"))));
+        var contents = contentsOfEveryFileIn(folder);
+        for (var line : List.of("first run, before the roll", "second run, before the roll", "second run, after the roll")) {
+            assertTrue(line + " is missing from " + contents, contents.contains(line + NL));
+        }
+    }
+
+    @Test
     public void closingTheAppenderWritesWhatWasStillBuffered() throws Exception {
         var sink = new File(tempFolder.newFolder(), "app.log");
         var appender = appenderOn(sink, 60_000);
