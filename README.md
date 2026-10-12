@@ -365,7 +365,7 @@ forward keeps it, and one that moves off it closes it.
 interval has passed:
 
 ```java
-var daily = RollingFileAppender.create("logs/app.log",
+var daily = RollingFileAppender.create("app.log",
         PatternFormatter.create("%date %level %m"), Duration.ofDays(1).toMillis());
 log.addAppender(daily);
 ```
@@ -376,37 +376,46 @@ roll until it has something to write, and the line that finds the interval
 over is the first one in the new file. A line is never split between two
 files.
 
-The first period goes to the path you give. Each one after it goes to a new
-file in the same directory, named after that path with a timestamp added, so
-the files sort in the order they were written.
+A relative path is placed under a `log/` directory in the working directory,
+so `app.log` is written to `log/app.log`. An absolute path is used as it is.
+Directories that do not exist yet are created.
 
-A finished file is compressed with gzip: at a roll, `app.log` becomes
-`app.log.gz` and the uncompressed file is deleted. The compressed copy is
-written to `app.log.gz.tmp` first and renamed to `.gz` only once it is
-complete, so a crash part way through leaves the original in place rather than
-a cut-off archive. The file being written is never compressed, so the last one
-stays plain text when the application stops. Archives are never deleted; they
-build up until you remove them.
+The first period goes to that path. Each one after it goes to a new file in
+the same directory, named after the path without its extension, with a
+timestamp down to the microsecond added — `log/app2026-10-12-185959799193` —
+so the files sort in the order they were written and two rolls never share a
+name, however close together they are.
+
+A finished file is compressed with gzip: at a roll, `log/app.log` becomes
+`log/app.log.gz` and the uncompressed file is deleted. If that archive name is
+already taken — by an earlier run, for example — the archive is named with a
+fresh timestamp instead, so a restart compresses its first file too. The
+compressed copy is written to a `.gz.tmp` file first and renamed to `.gz` only
+once it is complete, so a crash part way through leaves the original in place
+rather than a cut-off archive.
+
+If compression fails, the finished file is kept uncompressed, the partial
+`.gz.tmp` is removed, and a notice is printed on stderr. The line that
+triggered the roll is still written to the new file.
+
+The file being written is never compressed, so the last one stays plain text
+when the application stops. Archives are never deleted; they build up until
+you remove them.
 
 This is the first version, and it is deliberately small:
 
+- **The `log/` directory is fixed.** It cannot be changed yet; pass an absolute
+  path to write anywhere else.
 - **Starting the appender empties the file at that path.** It does not append
   to what an earlier run left there, so move that file aside first if you need
   it.
 - **Compression runs on the logging thread.** The line that triggers a roll
   waits until the finished file is compressed, and so does every other thread
   logging through the same logger. With large files that pause is noticeable.
-- **A restart cannot compress its first file.** Every run starts on the path
-  you give, so once one run has produced `app.log.gz`, the next run's first
-  roll finds that name taken: it leaves `app.log` uncompressed, next to a stray
-  `app.log.gz.tmp`, loses the line that triggered the roll, and reports the
-  failure through `checkFailure()`. Because of the bullet above, the run after
-  that empties `app.log`, so move it aside if you need it.
+- **A file's timestamp is when the period before it started**, not when its
+  own lines began.
 - **Intervals are not aligned to the clock.** A daily appender created at 15:20
   rolls at 15:20, not at midnight, and a restart starts the count again.
-- **The timestamp has one-second resolution.** Two rolls in the same second
-  write to the same file, and the second one replaces the first. Keep
-  intervals well above a second.
 - **One appender per file.** Unlike `FileAppender`, two rolling appenders on the
   same path do not share a writer, and neither knows about the other's files.
 - **The path needs an extension.** `app.log` works; a bare `app` cannot roll,
@@ -498,7 +507,7 @@ Roughly in the order it makes sense to build:
    event carries it.
 2. **Rolling files, the rest** — size-based rolling, periods aligned to the
    clock (midnight, the top of the hour), appending to the file a previous run
-   left, archive names that never clash, compressing in the background, and
+   left, a configurable log directory, compressing in the background, and
    retention.
 3. **Logger hierarchy** — `com.acme.checkout.Flow` inheriting from `com.acme` and
    a root logger.
