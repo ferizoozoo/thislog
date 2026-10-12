@@ -13,6 +13,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.zip.GZIPOutputStream;
 
 final class RollingFile extends OutputStream {
+    private static final String DIRECTORY_LOCATION = "log/";
     private final String baseFilename;
     private OutputStream out;
     private String currentFilename;
@@ -20,11 +21,15 @@ final class RollingFile extends OutputStream {
     private Instant lastRollAt;
 
     public RollingFile(String filename, long intervalMs) {
-        this.baseFilename = filename;
+        this.baseFilename = Path.of(DIRECTORY_LOCATION).resolve(filename).toString();
         this.currentFilename = this.baseFilename;
         this.intervalMs = intervalMs;
         this.lastRollAt = Instant.now();
         try {
+            var directory = Path.of(this.baseFilename).getParent();
+            if (directory != null) {
+                Files.createDirectories(directory);
+            }
             this.out = new BufferedOutputStream(new FileOutputStream(this.baseFilename));
         } catch (Exception e) {
             System.out.println("Could not open the file");
@@ -83,7 +88,7 @@ final class RollingFile extends OutputStream {
     private void gzip(Path source) throws IOException {
         var target = source.resolveSibling(source.getFileName() + ".gz");
         while (Files.exists(target)) {
-            target = source.resolveSibling(this.generateFilename() + ".gz");
+            target = Path.of(this.generateFilename() + ".gz");
         }
         var partial = source.resolveSibling(source.getFileName() + ".gz.tmp");
         try (var in = Files.newInputStream(source);
