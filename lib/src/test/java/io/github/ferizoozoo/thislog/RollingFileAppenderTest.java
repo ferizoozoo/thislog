@@ -4,8 +4,11 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
+import java.util.UUID;
 import java.util.zip.GZIPInputStream;
 
 import org.junit.After;
@@ -45,6 +48,9 @@ public class RollingFileAppenderTest {
     private static List<String> contentsOfEveryFileIn(File folder) throws Exception {
         var contents = new ArrayList<String>();
         for (var file : folder.listFiles()) {
+            if (file.isDirectory()) {
+                continue;
+            }
             try (var in = file.getName().endsWith(".gz")
                     ? new GZIPInputStream(new FileInputStream(file))
                     : new FileInputStream(file)) {
@@ -136,5 +142,87 @@ public class RollingFileAppenderTest {
         appender.close();
 
         assertEquals("written before close" + NL, Files.readString(sink.toPath(), StandardCharsets.UTF_8));
+    }
+
+    @Test
+    public void finishedFilesAreNamedAfterThePathWithAMicrosecondTimestamp() throws Exception {
+        var folder = tempFolder.newFolder();
+        var appender = appenderOn(new File(folder, "app.log"), 50);
+
+        for (int i = 0; i < 3; i++) {
+            appender.append(event("line " + i));
+            Thread.sleep(100);
+        }
+        appender.flush();
+
+        var names = List.of(folder.list());
+        assertEquals(names.toString(), 3, names.size());
+        assertTrue(names + " has no app.log.gz", names.contains("app.log.gz"));
+        for (var name : names) {
+            assertTrue(name + " is not a rolled file name",
+                    name.matches("app\\.log\\.gz|app\\d{4}-\\d{2}-\\d{2}-\\d{12}(\\.gz)?"));
+        }
+        assertEquals(names.toString(), 1, names.stream().filter(n -> !n.endsWith(".gz")).count());
+    }
+
+    @Test
+    public void aRelativePathIsWrittenUnderTheLogDirectory() throws Exception {
+        var relative = "rolling-test-" + UUID.randomUUID() + "/app.log";
+        var expected = Path.of("log").resolve(relative);
+        var appender = RollingFileAppender.create(relative, LogEvent::getMessage, 60_000);
+        try {
+            appender.append(event("under log/"));
+            appender.close();
+
+            assertEquals("under log/" + NL, Files.readString(expected, StandardCharsets.UTF_8));
+            assertFalse(Files.exists(Path.of(relative)));
+        } finally {
+            appender.close();
+            deleteRecursively(expected.getParent());
+            try (var left = Files.list(Path.of("log"))) {
+                if (left.findAny().isEmpty()) {
+                    Files.delete(Path.of("log"));
+                }
+            }
+        }
+    }
+
+    @Test
+    public void missingParentDirectoriesAreCreated() throws Exception {
+        var sink = new File(tempFolder.newFolder(), "nested/deeper/app.log");
+        var appender = appenderOn(sink, 60_000);
+
+        appender.append(event("in a new directory"));
+        appender.close();
+
+        assertFalse(appender.checkFailure());
+        assertEquals("in a new directory" + NL, Files.readString(sink.toPath(), StandardCharsets.UTF_8));
+    }
+
+    @Test
+    public void theLineThatTriggersAFailedCompressionIsStillWritten() throws Exception {
+        var folder = tempFolder.newFolder();
+        var appender = appenderOn(new File(folder, "app.log"), 50);
+        assertTrue(new File(folder, "app.log.gz.tmp").mkdir());
+
+        appender.append(event("before the roll"));
+        Thread.sleep(100);
+        appender.append(event("after the roll"));
+        appender.flush();
+
+        assertTrue(new File(folder, "app.log").exists());
+        var contents = contentsOfEveryFileIn(folder);
+        assertTrue("after the roll is missing from " + contents, contents.contains("after the roll" + NL));
+    }
+
+    private static void deleteRecursively(Path root) throws Exception {
+        if (!Files.exists(root)) {
+            return;
+        }
+        try (var walk = Files.walk(root)) {
+            for (var path : walk.sorted(Comparator.reverseOrder()).toList()) {
+                Files.delete(path);
+            }
+        }
     }
 }

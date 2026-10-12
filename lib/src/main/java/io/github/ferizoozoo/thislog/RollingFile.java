@@ -70,7 +70,12 @@ final class RollingFile extends OutputStream {
         this.currentFilename = this.generateFilename();
         this.out = new BufferedOutputStream(new FileOutputStream(this.currentFilename));
         this.lastRollAt = Instant.now();
-        gzip(Path.of(finishedFilename));
+        try {
+            gzip(Path.of(finishedFilename));
+        } catch (IOException e) {
+            System.err.println("thislog: could not compress '" + finishedFilename + "' (" + e
+                    + "); it is kept uncompressed");
+        }
     }
 
     private String generateFilename() throws IOException {
@@ -91,11 +96,18 @@ final class RollingFile extends OutputStream {
             target = Path.of(this.generateFilename() + ".gz");
         }
         var partial = source.resolveSibling(source.getFileName() + ".gz.tmp");
-        try (var in = Files.newInputStream(source);
-                var out = new GZIPOutputStream(Files.newOutputStream(partial))) {
-            in.transferTo(out);
+        try {
+            try (var in = Files.newInputStream(source);
+                    var out = new GZIPOutputStream(Files.newOutputStream(partial))) {
+                in.transferTo(out);
+            }
+            Files.move(partial, target);
+        } catch (IOException e) {
+            if (Files.isRegularFile(partial)) {
+                Files.deleteIfExists(partial);
+            }
+            throw e;
         }
-        Files.move(partial, target);
         Files.delete(source);
     }
 
