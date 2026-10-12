@@ -6,6 +6,7 @@ import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
@@ -16,13 +17,13 @@ final class RollingFile extends OutputStream {
     private OutputStream out;
     private String currentFilename;
     private final long intervalMs;
-    private long lastRollAt;
+    private Instant lastRollAt;
 
     public RollingFile(String filename, long intervalMs) {
         this.baseFilename = filename;
         this.currentFilename = this.baseFilename;
         this.intervalMs = intervalMs;
-        this.lastRollAt = System.currentTimeMillis();
+        this.lastRollAt = Instant.now();
         try {
             this.out = new BufferedOutputStream(new FileOutputStream(this.baseFilename));
         } catch (Exception e) {
@@ -55,7 +56,7 @@ final class RollingFile extends OutputStream {
     }
 
     private boolean shouldRoll() {
-        return System.currentTimeMillis() - this.lastRollAt >= intervalMs;
+        return Duration.between(this.lastRollAt, Instant.now()).toMillis() >= intervalMs;
     }
 
     public synchronized void roll() throws IOException {
@@ -63,7 +64,7 @@ final class RollingFile extends OutputStream {
         var finishedFilename = this.currentFilename;
         this.currentFilename = this.generateFilename();
         this.out = new BufferedOutputStream(new FileOutputStream(this.currentFilename));
-        this.lastRollAt = System.currentTimeMillis();
+        this.lastRollAt = Instant.now();
         gzip(Path.of(finishedFilename));
     }
 
@@ -73,11 +74,10 @@ final class RollingFile extends OutputStream {
             throw new IOException("Could not split the filename by a dot, because dot is not present");
         }
         var name = dot > 0 ? baseFilename.substring(0, dot) : baseFilename;
-        var extension = dot > 0 ? baseFilename.substring(dot) : ""; // keeps the "."
-        var stamp = DateTimeFormatter.ofPattern("yyyy-MM-dd-HHmmss")
+        var stamp = DateTimeFormatter.ofPattern("yyyy-MM-dd-HHmmssSSSSSS")
                 .withZone(ZoneId.systemDefault())
-                .format(Instant.ofEpochMilli(lastRollAt));
-        return name + stamp + "." + extension;
+                .format(lastRollAt);
+        return name + stamp;
     }
 
     private void gzip(Path source) throws IOException {

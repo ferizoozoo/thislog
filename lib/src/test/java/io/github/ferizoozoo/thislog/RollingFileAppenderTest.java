@@ -68,6 +68,25 @@ public class RollingFileAppenderTest {
         assertEquals(List.of("after the roll" + NL, "before the roll" + NL), contentsOfEveryFileIn(folder));
     }
 
+    @Test(timeout = 10_000)
+    public void severalRollsWithinOneSecondKeepEveryLine() throws Exception {
+        var folder = tempFolder.newFolder();
+        var appender = appenderOn(new File(folder, "app.log"), 20);
+
+        var written = new ArrayList<String>();
+        for (int i = 0; i < 5; i++) {
+            written.add("line " + i + NL);
+            appender.append(event("line " + i));
+            Thread.sleep(30);
+        }
+        appender.flush();
+
+        assertFalse(appender.checkFailure());
+        var contents = new ArrayList<>(contentsOfEveryFileIn(folder));
+        contents.removeIf(String::isEmpty);
+        assertEquals(written, contents);
+    }
+
     @Test
     public void aRolledFileIsCompressedAndTheOriginalRemoved() throws Exception {
         var folder = tempFolder.newFolder();
